@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: backend
+  data:
+    mongodb:
+      uri: "mongodb+srv://greenbridge_db_user:Pass%40green@globalisor.m4zuxpm.mongodb.net/globalisor?appName=globalisor"
+      database: globalisor
+
+globalisor:
+  app:
+    jwtSecret: globalisorSecretKeyThatIsVeryLongAndSecureEnoughForHS256Algorithm1234567890
+    jwtExpirationMs: 86400000
