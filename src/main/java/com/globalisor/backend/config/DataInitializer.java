@@ -1,0 +1,249 @@
+package com.globalisor.backend.config;
+
+import com.globalisor.backend.model.*;
+import com.globalisor.backend.repository.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Component;
+
+import java.util.*;
+
+@Component
+public class DataInitializer implements CommandLineRunner {
+
+    @Autowired
+    UserRepository userRepository;
+
+    @Autowired
+    RequirementRepository requirementRepository;
+
+    @Autowired
+    BlogRepository blogRepository;
+
+    @Autowired
+    KycRepository kycRepository;
+
+    @Autowired
+    ComplianceRepository complianceRepository;
+
+    @Autowired
+    ClientDocumentRepository clientDocumentRepository;
+
+    @Autowired
+    StaticContentRepository staticContentRepository;
+
+    @Autowired
+    MessageRepository messageRepository;
+
+    @Autowired
+    InvoiceRepository invoiceRepository;
+
+    @Autowired
+    CatalogItemRepository catalogItemRepository;
+
+    @Autowired
+    PasswordEncoder encoder;
+
+    @Override
+    public void run(String... args) throws Exception {
+        // 1. Seed Users (Clients)
+        if (userRepository.count() == 0) {
+            String defaultPassword = encoder.encode("password123");
+
+            User ethan = new User("Ethan", "Tan", "ethan.tan@lionpath.com", defaultPassword);
+            ethan.setId("C-1001");
+            ethan.setRole("USER");
+            userRepository.save(ethan);
+
+            User priya = new User("Priya", "Sharma", "priya.s@merlion.com", defaultPassword);
+            priya.setId("C-1002");
+            priya.setRole("USER");
+            userRepository.save(priya);
+
+            User ravi = new User("Ravi", "Kumar", "ravi.k@harbouredge.com", defaultPassword);
+            ravi.setId("C-1007");
+            ravi.setRole("USER");
+            userRepository.save(ravi);
+
+            User priya2 = new User("Priya", "Sharma", "priya.sharma@greenpath.eco", defaultPassword);
+            priya2.setId("C-1010");
+            priya2.setRole("USER");
+            userRepository.save(priya2);
+
+            User marcus = new User("Marcus", "Ng", "marcus.ng@cityscape.com", defaultPassword);
+            marcus.setId("C-1013");
+            marcus.setRole("USER");
+            userRepository.save(marcus);
+
+            User asif = new User("Mohammad", "Asif", "mohammad.a@example.com", defaultPassword);
+            asif.setId("C-1004");
+            asif.setRole("USER");
+            userRepository.save(asif);
+
+            // Also seed a default staff/admin user if not exists
+            User admin = new User("Admin", "Globalisor", "admin@globalisor.com", defaultPassword);
+            admin.setId("staff-admin");
+            admin.setRole("ADMIN");
+            userRepository.save(admin);
+            
+            User staff = new User("Sarah", "Lim", "staff.sarah@globalisor.com", defaultPassword);
+            staff.setId("staff-sarah");
+            staff.setRole("STAFF");
+            userRepository.save(staff);
+        }
+
+        // 2. Seed Requirements (Services)
+        if (requirementRepository.count() == 0) {
+            saveRequirement("C-1001", "LionPath Trading Pte. Ltd.", "In Progress");
+            saveRequirement("C-1002", "Merlion Ventures Pte. Ltd.", "Completed");
+            saveRequirement("C-1007", "HarbourEdge Logistics Pte. Ltd.", "In Progress");
+            saveRequirement("C-1010", "GreenPath Eco Pte. Ltd.", "Submitted to ACRA");
+            saveRequirement("C-1013", "CityScape Properties Pte. Ltd.", "New");
+        }
+
+        // 3. Seed Blogs
+        if (blogRepository.count() == 0) {
+            Blog blog1 = new Blog();
+            blog1.setId("blog-1");
+            blog1.setTitle("New ACRA Regulatory Updates for 2026");
+            blog1.setExcerpt("Key changes to company filing requirements and digital signature policies you need to know.");
+            blog1.setContent("Here is the detailed content for ACRA updates...");
+            blog1.setCategory("Compliance");
+            blog1.setAuthor("Admin Team");
+            blog1.setDate("May 10, 2026");
+            blog1.setPublished(true);
+            blogRepository.save(blog1);
+        }
+
+        // 4. Seed KYC
+        if (kycRepository.count() == 0) {
+            saveKyc("KYC-001", "C-1001", "Ethan Tan", "Passport", "Singapore", "approved", "Low");
+            saveKyc("KYC-002", "C-1002", "Priya Sharma", "NRIC", "Singapore", "approved", "Medium");
+            saveKyc("KYC-007", "C-1007", "Ravi Kumar", "Passport", "India", "approved", "Low");
+            saveKyc("KYC-010", "C-1010", "Priya Sharma", "Passport", "India", "approved", "Low");
+            saveKyc("KYC-013", "C-1013", "Marcus Ng", "NRIC", "Singapore", "pending", "High");
+        }
+
+        // 5. Seed Compliance
+        if (complianceRepository.count() == 0) {
+            saveCompliance("COMP-001", "C-1001", "Ethan Tan", "Annual Return Filing", "pending", "Low");
+            saveCompliance("COMP-002", "C-1002", "Priya Sharma", "AGM Declaration", "approved", "Low");
+        }
+
+        // 6. Seed Documents
+        if (clientDocumentRepository.count() == 0) {
+            saveDocument("DOC-101", "Passport", "ethan_passport.pdf", "approved", "C-1001", "2026-01-13");
+            saveDocument("DOC-102", "Address Proof", "ethan_address.pdf", "approved", "C-1001", "2026-01-13");
+            saveDocument("DOC-103", "Director ID", "ethan_director_id.pdf", "pending", "C-1001", "2026-03-04");
+            saveDocument("DOC-104", "Passport", "priya_passport.pdf", "approved", "C-1002", "2026-01-19");
+            saveDocument("DOC-105", "Address Proof", "priya_address.pdf", "approved", "C-1002", "2026-01-19");
+            saveDocument("DOC-106", "Business Supporting Document", "merlion_biz_plan.pdf", "approved", "C-1002", "2026-01-20");
+            saveDocument("DOC-107", "Passport", "ravi_passport.pdf", "approved", "C-1007", "2026-02-28");
+            saveDocument("DOC-108", "Director ID", "ravi_director_id.pdf", "approved", "C-1007", "2026-02-28");
+        }
+
+        // 7. Seed Static Content
+        if (staticContentRepository.count() == 0) {
+            StaticContent sc1 = new StaticContent();
+            sc1.setId("sc-1");
+            sc1.setTitle("Internal SOP for KYC Verification");
+            sc1.setDescription("Standard operating procedure for verifying identity documents for new applications.");
+            sc1.setContent("Full SOP details for internal staff review...");
+            sc1.setPortal("staff");
+            sc1.setCategory("Operational Guidelines");
+            sc1.setIsPublished(true);
+            sc1.setIsPinned(true);
+            staticContentRepository.save(sc1);
+
+            StaticContent sc2 = new StaticContent();
+            sc2.setId("sc-3");
+            sc2.setTitle("Data Extraction Protocol");
+            sc2.setDescription("Guideline for extracting information from ACRA Bizfiles.");
+            sc2.setContent("Extraction steps and common pitfalls...");
+            sc2.setPortal("staff");
+            sc2.setCategory("Technical Docs");
+            sc2.setIsPublished(true);
+            sc2.setIsPinned(false);
+            staticContentRepository.save(sc2);
+        }
+
+        // 8. Seed Messages
+        if (messageRepository.count() == 0) {
+            saveMessage("msg-1", "C-1001", "C-1001", "Ethan Tan", "client", "Hello, I have a question about my incorporation progress.", 1715580000000L);
+            saveMessage("msg-2", "C-1001", "staff-sarah", "Sarah Lim", "staff", "Hello Ethan! I'm reviewing your documents right now. Everything looks good so far.", 1715580100000L);
+            saveMessage("msg-3", "C-1001", "staff-sarah", "Sarah Lim", "staff", "Hello", 1778741843166L);
+            saveMessage("msg-4", "C-1001", "C-1001", "Ethan Tan", "client", "Hello", 1778742050687L);
+        }
+        
+        // 9. Seed Catalog
+        if (catalogItemRepository.count() == 0) {
+            saveCatalogItem("CAT-1", "Nominee Director", "SGD 3,000/yr", "Qualified local resident director to meet ACRA requirements.", "Corporate Secretarial");
+            saveCatalogItem("CAT-2", "Registered Address", "SGD 300/yr", "Premium CBD business address for mail handling.", "Administrative");
+        }
+    }
+
+    private void saveRequirement(String userId, String companyName, String status) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("names", Arrays.asList(companyName));
+        Requirement req = new Requirement(userId, data);
+        req.setStatus(status);
+        requirementRepository.save(req);
+    }
+
+    private void saveKyc(String id, String clientId, String name, String idType, String nation, String status, String risk) {
+        Kyc kyc = new Kyc();
+        kyc.setId(id);
+        kyc.setClientId(clientId);
+        kyc.setName(name);
+        kyc.setIdType(idType);
+        kyc.setNation(nation);
+        kyc.setStatus(status);
+        kyc.setRisk(risk);
+        kycRepository.save(kyc);
+    }
+
+    private void saveCompliance(String id, String clientId, String name, String type, String status, String risk) {
+        Compliance comp = new Compliance();
+        comp.setId(id);
+        comp.setClientId(clientId);
+        comp.setName(name);
+        comp.setType(type);
+        comp.setStatus(status);
+        comp.setRisk(risk);
+        complianceRepository.save(comp);
+    }
+
+    private void saveDocument(String id, String title, String file, String status, String clientId, String date) {
+        ClientDocument doc = new ClientDocument();
+        doc.setId(id);
+        doc.setTitle(title);
+        doc.setFile(file);
+        doc.setStatus(status);
+        doc.setClientId(clientId);
+        doc.setDate(date);
+        clientDocumentRepository.save(doc);
+    }
+
+    private void saveMessage(String id, String clientId, String senderId, String senderName, String senderRole, String text, long timestamp) {
+        Message msg = new Message();
+        msg.setId(id);
+        msg.setClientId(clientId);
+        msg.setSenderId(senderId);
+        msg.setSenderName(senderName);
+        msg.setSenderRole(senderRole);
+        msg.setText(text);
+        msg.setTimestamp(timestamp);
+        messageRepository.save(msg);
+    }
+    
+    private void saveCatalogItem(String id, String name, String price, String description, String category) {
+        CatalogItem item = new CatalogItem();
+        item.setId(id);
+        item.setName(name);
+        item.setPrice(price);
+        item.setDescription(description);
+        item.setCategory(category);
+        catalogItemRepository.save(item);
+    }
+}
