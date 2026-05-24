@@ -75,6 +75,8 @@ public class WebSecurityConfig {
                         .requestMatchers("/api/dashboard/**").permitAll()
                         .requestMatchers("/api/clients/**").permitAll()
                         .requestMatchers("/api/services/**").permitAll()
+                        .requestMatchers("/api/applications/**").permitAll()
+                        .requestMatchers("/api/admin/staff/**").permitAll()
                         .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated()
                 );

@@ -16,6 +16,7 @@ public class Requirement {
     private String id;
     private String userId;
     private String status = "pending";
+    private String staff = "Sarah Lim";
     private Date createdAt = new Date();
     private Date updatedAt = new Date();
     private Map<String, Object> data;
