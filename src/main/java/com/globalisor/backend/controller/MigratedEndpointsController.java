@@ -423,8 +423,7 @@ public class MigratedEndpointsController {
             // Find client
             Optional<User> userOpt = users.stream().filter(u -> u.getId().equals(req.getUserId())).findFirst();
             map.put("client", userOpt.map(u -> u.getFirstName() + " " + u.getLastName()).orElse("Unknown"));
-
-            map.put("staff", "Sarah Lim");
+            map.put("staff", req.getStaff() != null ? req.getStaff() : "Sarah Lim");
             map.put("status", req.getStatus() != null ? req.getStatus() : "pending");
             
             // Priority & Deadline

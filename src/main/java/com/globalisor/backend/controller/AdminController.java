@@ -128,7 +128,12 @@ public class AdminController {
         if (reqOpt.isEmpty()) return ResponseEntity.notFound().build();
         
         Requirement req = reqOpt.get();
-        req.setStatus(body.get("status"));
+        if (body.containsKey("status")) {
+            req.setStatus(body.get("status"));
+        }
+        if (body.containsKey("staff")) {
+            req.setStaff(body.get("staff"));
+        }
         req.setUpdatedAt(new Date());
         requirementRepository.save(req);
         
