@@ -4,8 +4,10 @@ import com.globalisor.backend.model.Requirement;
 import com.globalisor.backend.model.User;
 import com.globalisor.backend.repository.RequirementRepository;
 import com.globalisor.backend.repository.UserRepository;
+import com.globalisor.backend.security.EncryptionUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
@@ -20,6 +22,58 @@ public class AdminController {
 
     @Autowired
     RequirementRepository requirementRepository;
+
+    @Autowired
+    private PasswordEncoder encoder;
+
+    @Autowired
+    private EncryptionUtils encryptionUtils;
+
+    @GetMapping("/admin/staff")
+    public ResponseEntity<?> getStaffList() {
+        List<User> staffList = userRepository.findByRole("STAFF");
+        return ResponseEntity.ok(staffList);
+    }
+
+    @PostMapping("/admin/staff")
+    public ResponseEntity<?> createStaff(@RequestBody Map<String, String> body) {
+        String firstName = body.get("firstName");
+        String lastName = body.get("lastName");
+
+        if (firstName == null || lastName == null || firstName.isEmpty() || lastName.isEmpty()) {
+            return ResponseEntity.badRequest().body("First name and last name are required");
+        }
+
+        // Generate unique email
+        String baseEmail = (firstName + "." + lastName).toLowerCase().replaceAll("[^a-z0-9]", "");
+        String email = baseEmail + "@globalisor.com";
+        int suffix = 1;
+        while (userRepository.existsByEmail(encryptionUtils.encryptQueryable(email))) {
+            email = baseEmail + suffix + "@globalisor.com";
+            suffix++;
+        }
+
+        // Generate random password
+        String password = "Glob-" + (1000 + new Random().nextInt(9000));
+
+        // Create new user
+        User newStaff = new User(firstName, lastName, email, encoder.encode(password));
+        newStaff.setRole("STAFF");
+        newStaff.setId("staff-" + System.currentTimeMillis());
+
+        userRepository.save(newStaff);
+
+        // Return credentials
+        Map<String, Object> response = new HashMap<>();
+        response.put("id", newStaff.getId());
+        response.put("firstName", newStaff.getFirstName());
+        response.put("lastName", newStaff.getLastName());
+        response.put("email", newStaff.getEmail());
+        response.put("password", password);
+        response.put("role", newStaff.getRole());
+
+        return ResponseEntity.ok(response);
+    }
 
     @GetMapping("/clients/{id}/services")
     public ResponseEntity<?> getClientServices(@PathVariable String id) {
@@ -81,3 +135,4 @@ public class AdminController {
         return ResponseEntity.ok(req);
     }
 }
+
