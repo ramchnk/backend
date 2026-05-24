@@ -1,12 +1,12 @@
 spring:
   application:
     name: backend
-server:
-  port: ${PORT:8080}
   data:
     mongodb:
       uri: "mongodb+srv://greenbridge_db_user:Pass%40green@globalisor.m4zuxpm.mongodb.net/globalisor?appName=globalisor"
       database: globalisor
+server:
+  port: ${PORT:8080}
 
 globalisor:
   app:
