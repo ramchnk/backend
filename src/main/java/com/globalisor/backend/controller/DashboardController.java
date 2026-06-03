@@ -40,6 +40,10 @@ public class DashboardController {
             String latestActivity = userReqs.isEmpty() ? "Joined" : userReqs.get(0).getUpdatedAt().toString();
             
             List<String> companyNames = new ArrayList<>();
+            List<String> serviceTypes = new ArrayList<>();
+            int pendingCount = 0, approvedCount = 0, rejectedCount = 0;
+            String latestStaff = "Unassigned";
+
             for (Requirement r : userReqs) {
                 Map<String, Object> data = r.getData();
                 if (data != null && data.containsKey("names")) {
@@ -51,6 +55,18 @@ public class DashboardController {
                         }
                     }
                 }
+                // Service type
+                Object sType = (data != null) ? data.get("serviceType") : null;
+                serviceTypes.add(sType != null ? sType.toString() : "Company Incorporation");
+                // Status counts
+                String s = r.getStatus() != null ? r.getStatus().toLowerCase() : "pending";
+                if (s.equals("approved") || s.equals("verified") || s.equals("completed")) approvedCount++;
+                else if (s.equals("rejected")) rejectedCount++;
+                else pendingCount++;
+                // Staff
+                if (r.getStaff() != null && !r.getStaff().isEmpty() && !r.getStaff().equals("Unassigned")) {
+                    latestStaff = r.getStaff();
+                }
             }
 
             return new DashboardResponse.ClientInfo(
@@ -61,8 +77,13 @@ public class DashboardController {
                     latestActivity,
                     latestStatus,
                     companyNames,
-                    "", 
-                    0 
+                    "", // phone not in User model yet
+                    0L,
+                    pendingCount,
+                    approvedCount,
+                    rejectedCount,
+                    serviceTypes,
+                    latestStaff
             );
         }).collect(Collectors.toList());
 

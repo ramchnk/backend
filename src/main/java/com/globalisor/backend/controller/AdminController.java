@@ -61,6 +61,7 @@ public class AdminController {
                 service.put("serviceType", "Company Incorporation");
                 service.put("details", data);
                 service.put("totalPrice", "SGD 1,500");
+                service.put("staff", r.getStaff() != null ? r.getStaff() : "Unassigned");
                 userServices.add(service);
             });
 
@@ -95,57 +96,7 @@ public class AdminController {
         return ResponseEntity.ok(req);
     }
 
-    @GetMapping("/applications")
-    public ResponseEntity<?> getApplications() {
-        List<Requirement> requirements = requirementRepository.findAll();
-        List<User> users = userRepository.findAll();
-        Map<String, User> userMap = new HashMap<>();
-        for (User u : users) {
-            userMap.put(u.getId(), u);
-        }
-        
-        List<Map<String, Object>> apps = new ArrayList<>();
-        for (Requirement req : requirements) {
-            Map<String, Object> app = new HashMap<>();
-            app.put("id", req.getId());
-            app.put("status", req.getStatus());
-            app.put("staff", req.getStaff() != null ? req.getStaff() : "Sarah Lim");
-            
-            String business = "N/A";
-            Map<String, Object> data = req.getData();
-            if (data != null && data.containsKey("names")) {
-                Object namesObj = data.get("names");
-                if (namesObj instanceof List) {
-                    List<?> names = (List<?>) namesObj;
-                    if (!names.isEmpty() && names.get(0) != null) {
-                        business = names.get(0).toString();
-                    }
-                }
-            }
-            app.put("business", business);
-            
-            User user = userMap.get(req.getUserId());
-            app.put("client", user != null ? (user.getFirstName() + " " + user.getLastName()) : "N/A");
-            
-            String priority = "Normal";
-            if (data != null && data.containsKey("priority")) {
-                priority = data.get("priority").toString();
-            }
-            app.put("priority", priority);
-            
-            app.put("kyc", "Approved");
-            
-            Map<String, Object> docs = new HashMap<>();
-            docs.put("pending", 0);
-            docs.put("ok", 0);
-            app.put("docs", docs);
-            
-            app.put("date", req.getUpdatedAt() != null ? req.getUpdatedAt().toString() : "");
-            
-            apps.add(app);
-        }
-        return ResponseEntity.ok(apps);
-    }
+
 
     @GetMapping("/services/debug/{id}")
     public ResponseEntity<?> debugService(@PathVariable String id) {
