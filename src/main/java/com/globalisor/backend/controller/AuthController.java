@@ -48,11 +48,18 @@ public class AuthController {
 
         UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
 
+        String role = userDetails.getAuthorities().stream()
+                .map(item -> item.getAuthority())
+                .findFirst()
+                .orElse("ROLE_USER")
+                .substring(5);
+
         return ResponseEntity.ok(new JwtResponse(jwt,
                 userDetails.getId(),
                 userDetails.getEmail(),
                 userDetails.getFirstName(),
-                userDetails.getLastName()));
+                userDetails.getLastName(),
+                role));
     }
 
     @PostMapping("/signup")

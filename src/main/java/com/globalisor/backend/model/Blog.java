@@ -17,7 +17,13 @@ public class Blog {
     private String category;
     private String author;
     private String date; // e.g. "May 10, 2026"
+    private String coverImage;
     private Boolean published = true;
+    private String publishedTitle;
+    private String publishedExcerpt;
+    private String publishedContent;
+    private String publishedCoverImage;
+    private Boolean hasUnpublishedChanges = false;
     private Long createdAt = System.currentTimeMillis();
     private Long updatedAt;
 }

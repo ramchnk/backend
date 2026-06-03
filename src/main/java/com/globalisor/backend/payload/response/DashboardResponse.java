@@ -27,5 +27,10 @@ public class DashboardResponse {
         private List<String> companyNames;
         private String phone;
         private long createdAt;
+        private int pendingCount;
+        private int approvedCount;
+        private int rejectedCount;
+        private List<String> serviceTypes;
+        private String latestStaff;
     }
 }

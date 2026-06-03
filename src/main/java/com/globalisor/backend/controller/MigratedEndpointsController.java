@@ -99,6 +99,53 @@ public class MigratedEndpointsController {
         if (blogUpdates.getAuthor() != null) blog.setAuthor(blogUpdates.getAuthor());
         if (blogUpdates.getDate() != null) blog.setDate(blogUpdates.getDate());
         if (blogUpdates.getPublished() != null) blog.setPublished(blogUpdates.getPublished());
+        if (blogUpdates.getCoverImage() != null) blog.setCoverImage(blogUpdates.getCoverImage());
+        
+        // Map published version changes
+        if (blogUpdates.getPublishedTitle() != null) blog.setPublishedTitle(blogUpdates.getPublishedTitle());
+        if (blogUpdates.getPublishedExcerpt() != null) blog.setPublishedExcerpt(blogUpdates.getPublishedExcerpt());
+        if (blogUpdates.getPublishedContent() != null) blog.setPublishedContent(blogUpdates.getPublishedContent());
+        if (blogUpdates.getPublishedCoverImage() != null) blog.setPublishedCoverImage(blogUpdates.getPublishedCoverImage());
+        if (blogUpdates.getHasUnpublishedChanges() != null) blog.setHasUnpublishedChanges(blogUpdates.getHasUnpublishedChanges());
+        
+        blog.setUpdatedAt(System.currentTimeMillis());
+        
+        Blog saved = blogRepository.save(blog);
+        return ResponseEntity.ok(saved);
+    }
+
+    @PutMapping("/blogs/{id}")
+    public ResponseEntity<Blog> updateBlogPut(@PathVariable String id, @RequestBody Blog blogUpdates) {
+        Optional<Blog> blogOpt = blogRepository.findById(id);
+        if (blogOpt.isEmpty()) {
+            if (blogUpdates.getId() == null) {
+                blogUpdates.setId(id);
+            }
+            if (blogUpdates.getCreatedAt() == null) {
+                blogUpdates.setCreatedAt(System.currentTimeMillis());
+            }
+            Blog saved = blogRepository.save(blogUpdates);
+            return ResponseEntity.ok(saved);
+        }
+        Blog blog = blogOpt.get();
+        if (blogUpdates.getTitle() != null) blog.setTitle(blogUpdates.getTitle());
+        if (blogUpdates.getExcerpt() != null) blog.setExcerpt(blogUpdates.getExcerpt());
+        if (blogUpdates.getContent() != null) blog.setContent(blogUpdates.getContent());
+        if (blogUpdates.getCategory() != null) blog.setCategory(blogUpdates.getCategory());
+        if (blogUpdates.getAuthor() != null) blog.setAuthor(blogUpdates.getAuthor());
+        if (blogUpdates.getDate() != null) blog.setDate(blogUpdates.getDate());
+        if (blogUpdates.getPublished() != null) blog.setPublished(blogUpdates.getPublished());
+        if (blogUpdates.getCoverImage() != null) blog.setCoverImage(blogUpdates.getCoverImage());
+        
+        // Map published version changes
+        blog.setPublishedTitle(blogUpdates.getPublishedTitle());
+        blog.setPublishedExcerpt(blogUpdates.getPublishedExcerpt());
+        blog.setPublishedContent(blogUpdates.getPublishedContent());
+        blog.setPublishedCoverImage(blogUpdates.getPublishedCoverImage());
+        if (blogUpdates.getHasUnpublishedChanges() != null) {
+            blog.setHasUnpublishedChanges(blogUpdates.getHasUnpublishedChanges());
+        }
+        
         blog.setUpdatedAt(System.currentTimeMillis());
         
         Blog saved = blogRepository.save(blog);
