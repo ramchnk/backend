@@ -49,6 +49,9 @@ public class MigratedEndpointsController {
     @Autowired
     CatalogItemRepository catalogItemRepository;
 
+    @Autowired
+    CountryRepository countryRepository;
+
     // --- BLOG ENDPOINTS ---
     @GetMapping("/blogs")
     public ResponseEntity<List<Blog>> getAllBlogs() {
@@ -542,6 +545,105 @@ public class MigratedEndpointsController {
     @GetMapping("/clients/{id}/invoices")
     public ResponseEntity<List<Invoice>> getClientInvoices(@PathVariable String id) {
         return ResponseEntity.ok(invoiceRepository.findByClientId(id));
+    }
+
+    // --- COUNTRY ENDPOINTS ---
+    @GetMapping("/countries")
+    public ResponseEntity<List<Country>> getAllCountries() {
+        List<Country> countries = countryRepository.findAll();
+        // If empty in DB, initialize with default countries
+        if (countries.isEmpty()) {
+            List<Country> defaultCountries = Arrays.asList(
+                createDefaultCountry("Singapore", "SG", "9-character alphanumeric", "17% (flat rate)", "99.5%", true, Arrays.asList("Company Incorporation", "Corporate Secretary", "Nominee Director", "Office Address", "Tax & Compliance"), 1315.0, 900.0, 3000.0, 600.0, 1500.0, 500.0),
+                createDefaultCountry("Hong Kong", "HK", "8-digit registration no.", "16.5% (two-tier)", "98.8%", true, Arrays.asList("Company Incorporation", "Corporate Secretary", "Office Address", "Tax & Compliance"), 1650.0, 800.0, 2500.0, 500.0, 1200.0, 400.0),
+                createDefaultCountry("United States", "USA", "9-digit EIN number", "21% (federal flat)", "97.2%", true, Arrays.asList("Company Incorporation", "Corporate Secretary", "Nominee Director", "Office Address", "Tax & Compliance"), 1200.0, 1000.0, 3000.0, 700.0, 1500.0, 500.0),
+                createDefaultCountry("Dubai", "UAE", "Varies by Free Zone", "9% (above 375k AED)", "99.1%", true, Arrays.asList("Company Incorporation", "Corporate Secretary", "Nominee Director", "Office Address", "Tax & Compliance"), 2500.0, 1200.0, 4000.0, 900.0, 1800.0, 600.0),
+                createDefaultCountry("Australia", "AUS", "9-digit ACN number", "25% - 30%", "96.8%", true, Arrays.asList("Company Incorporation", "Corporate Secretary", "Nominee Director", "Office Address", "Tax & Compliance"), 1400.0, 950.0, 3100.0, 650.0, 1600.0, 550.0),
+                createDefaultCountry("United Kingdom", "UK", "8-digit CRN number", "19% - 25%", "98.5%", true, Arrays.asList("Company Incorporation", "Corporate Secretary", "Nominee Director", "Office Address", "Tax & Compliance"), 1300.0, 850.0, 2800.0, 550.0, 1400.0, 450.0)
+            );
+            countries = countryRepository.saveAll(defaultCountries);
+        }
+        return ResponseEntity.ok(countries);
+    }
+
+    private Country createDefaultCountry(String name, String code, String uen, String tax, String compliance, boolean published, List<String> services, Double basePrice, Double priceSecretary, Double priceDirector, Double priceAddress, Double priceTax, Double priceBank) {
+        Country c = new Country();
+        c.setId("CNTRY-" + name.toLowerCase().replace(" ", "-"));
+        c.setName(name);
+        c.setCode(code);
+        c.setUen(uen);
+        c.setTax(tax);
+        c.setCompliance(compliance);
+        c.setStatus("ACTIVE");
+        c.setPublished(published);
+        c.setServices(services);
+        c.setBasePrice(basePrice);
+        c.setPriceSecretary(priceSecretary);
+        c.setPriceDirector(priceDirector);
+        c.setPriceAddress(priceAddress);
+        c.setPriceTax(priceTax);
+        c.setPriceBank(priceBank);
+
+        Map<String, Object> pubData = new HashMap<>();
+        pubData.put("name", name);
+        pubData.put("code", code);
+        pubData.put("uen", uen);
+        pubData.put("tax", tax);
+        pubData.put("compliance", compliance);
+        pubData.put("services", services);
+        pubData.put("basePrice", basePrice);
+        pubData.put("priceSecretary", priceSecretary);
+        pubData.put("priceDirector", priceDirector);
+        pubData.put("priceAddress", priceAddress);
+        pubData.put("priceTax", priceTax);
+        pubData.put("priceBank", priceBank);
+        pubData.put("customPrices", new HashMap<>());
+        c.setPublishedData(pubData);
+
+        return c;
+    }
+
+    @PostMapping("/countries")
+    public ResponseEntity<Country> createCountry(@RequestBody Country country) {
+        if (country.getId() == null) {
+            country.setId("CNTRY-" + System.currentTimeMillis());
+        }
+        Country saved = countryRepository.save(country);
+        return ResponseEntity.status(HttpStatus.CREATED).body(saved);
+    }
+
+    @PutMapping("/countries/{id}")
+    public ResponseEntity<Country> updateCountry(@PathVariable String id, @RequestBody Country countryUpdates) {
+        Optional<Country> countryOpt = countryRepository.findById(id);
+        if (countryOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        Country country = countryOpt.get();
+        if (countryUpdates.getName() != null) country.setName(countryUpdates.getName());
+        if (countryUpdates.getCode() != null) country.setCode(countryUpdates.getCode());
+        if (countryUpdates.getUen() != null) country.setUen(countryUpdates.getUen());
+        if (countryUpdates.getTax() != null) country.setTax(countryUpdates.getTax());
+        if (countryUpdates.getCompliance() != null) country.setCompliance(countryUpdates.getCompliance());
+        if (countryUpdates.getStatus() != null) country.setStatus(countryUpdates.getStatus());
+        if (countryUpdates.getPublished() != null) country.setPublished(countryUpdates.getPublished());
+        if (countryUpdates.getServices() != null) country.setServices(countryUpdates.getServices());
+        if (countryUpdates.getBasePrice() != null) country.setBasePrice(countryUpdates.getBasePrice());
+        if (countryUpdates.getPriceSecretary() != null) country.setPriceSecretary(countryUpdates.getPriceSecretary());
+        if (countryUpdates.getPriceDirector() != null) country.setPriceDirector(countryUpdates.getPriceDirector());
+        if (countryUpdates.getPriceAddress() != null) country.setPriceAddress(countryUpdates.getPriceAddress());
+        if (countryUpdates.getPriceTax() != null) country.setPriceTax(countryUpdates.getPriceTax());
+        if (countryUpdates.getPriceBank() != null) country.setPriceBank(countryUpdates.getPriceBank());
+        if (countryUpdates.getCustomPrices() != null) country.setCustomPrices(countryUpdates.getCustomPrices());
+        if (countryUpdates.getPublishedData() != null) country.setPublishedData(countryUpdates.getPublishedData());
+
+        Country saved = countryRepository.save(country);
+        return ResponseEntity.ok(saved);
+    }
+
+    @DeleteMapping("/countries/{id}")
+    public ResponseEntity<Void> deleteCountry(@PathVariable String id) {
+        countryRepository.deleteById(id);
+        return ResponseEntity.noContent().build();
     }
 
     private String capitalize(String str) {
