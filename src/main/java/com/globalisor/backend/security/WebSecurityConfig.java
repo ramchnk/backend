@@ -79,6 +79,7 @@ public class WebSecurityConfig {
                         .requestMatchers("/api/admin/staff/**").permitAll()
                         .requestMatchers("/api/blogs/**").permitAll()
                         .requestMatchers("/api/static-content/**").permitAll()
+                        .requestMatchers("/api/countries/**").permitAll()
                         .requestMatchers("/api/kyc/**").permitAll()
                         .requestMatchers("/api/compliance/**").permitAll()
                         .requestMatchers("/api/documents/**").permitAll()
