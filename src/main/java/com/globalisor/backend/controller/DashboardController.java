@@ -15,6 +15,8 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import com.globalisor.backend.websocket.ChatWebSocketHandler;
+
 @CrossOrigin(origins = "*", maxAge = 3600)
 @RestController
 @RequestMapping("/api/dashboard")
@@ -25,6 +27,9 @@ public class DashboardController {
 
     @Autowired
     RequirementRepository requirementRepository;
+
+    @Autowired
+    ChatWebSocketHandler chatWebSocketHandler;
 
     @GetMapping
     public ResponseEntity<?> getDashboardData() {
@@ -69,6 +74,9 @@ public class DashboardController {
                 }
             }
 
+            boolean isOnline = chatWebSocketHandler.isUserOnline(user.getId());
+            Long lastSeen = user.getLastSeenTime();
+
             return new DashboardResponse.ClientInfo(
                     user.getId(),
                     user.getFirstName() + " " + user.getLastName(),
@@ -83,7 +91,9 @@ public class DashboardController {
                     approvedCount,
                     rejectedCount,
                     serviceTypes,
-                    latestStaff
+                    latestStaff,
+                    isOnline,
+                    lastSeen
             );
         }).collect(Collectors.toList());
 

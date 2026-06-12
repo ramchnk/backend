@@ -90,6 +90,7 @@ public class DataInitializer implements CommandLineRunner {
             User staff = new User("Sarah", "Lim", "staff.sarah@globalisor.com", defaultPassword);
             staff.setId("staff-sarah");
             staff.setRole("STAFF");
+            staff.setPlainPassword("password123");
             userRepository.save(staff);
         }
 

@@ -145,6 +145,7 @@ public class PreRegSectionController {
                 sMap.put("type", s.getType());
                 sMap.put("sortOrder", s.getSortOrder());
                 sMap.put("fields", s.getFields());
+                sMap.put("applicableServices", s.getApplicableServices());
                 preview.add(sMap);
             }
         }
@@ -177,6 +178,7 @@ public class PreRegSectionController {
         section.setDescription(sectionUpdates.getDescription());
         section.setType(sectionUpdates.getType());
         section.setFields(sectionUpdates.getFields());
+        section.setApplicableServices(sectionUpdates.getApplicableServices());
 
         // Don't allow changing key for default seeded sections
         if (!section.getId().startsWith("sec-")) {
@@ -235,6 +237,7 @@ public class PreRegSectionController {
         snapshot.put("type", section.getType());
         snapshot.put("sortOrder", section.getSortOrder());
         snapshot.put("fields", section.getFields());
+        snapshot.put("applicableServices", section.getApplicableServices());
         section.setPublishedData(snapshot);
 
         PreRegSection saved = preRegSectionRepository.save(section);
