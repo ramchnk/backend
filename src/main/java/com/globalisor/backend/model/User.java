@@ -16,6 +16,8 @@ public class User {
     private String email;
     private String password;
     private String role = "USER";
+    private String plainPassword;
+    private Long lastSeenTime;
 
     public User(String firstName, String lastName, String email, String password) {
         this.firstName = firstName;

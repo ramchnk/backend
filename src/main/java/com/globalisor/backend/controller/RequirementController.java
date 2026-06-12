@@ -31,11 +31,13 @@ public class RequirementController {
             Map<String, Object> response = new HashMap<>();
             response.put("status", req.get().getStatus());
             response.put("data", req.get().getData());
+            response.put("sectionStatuses", req.get().getSectionStatuses());
             return ResponseEntity.ok(response);
         } else {
             Map<String, Object> response = new HashMap<>();
             response.put("status", "none");
             response.put("data", new HashMap<>());
+            response.put("sectionStatuses", new HashMap<>());
             return ResponseEntity.ok(response);
         }
     }
@@ -59,6 +61,7 @@ public class RequirementController {
         Map<String, Object> response = new HashMap<>();
         response.put("status", requirement.getStatus());
         response.put("data", requirement.getData());
+        response.put("sectionStatuses", requirement.getSectionStatuses());
         return ResponseEntity.ok(response);
     }
 
@@ -77,6 +80,7 @@ public class RequirementController {
             Map<String, Object> response = new HashMap<>();
             response.put("status", requirement.getStatus());
             response.put("data", requirement.getData());
+            response.put("sectionStatuses", requirement.getSectionStatuses());
             return ResponseEntity.ok(response);
         } else {
             return ResponseEntity.badRequest().body("No requirement found to submit");

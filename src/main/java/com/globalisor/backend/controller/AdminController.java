@@ -2,8 +2,11 @@ package com.globalisor.backend.controller;
 
 import com.globalisor.backend.model.Requirement;
 import com.globalisor.backend.model.User;
+import com.globalisor.backend.model.Notification;
 import com.globalisor.backend.repository.RequirementRepository;
 import com.globalisor.backend.repository.UserRepository;
+import com.globalisor.backend.repository.NotificationRepository;
+import com.globalisor.backend.websocket.ChatWebSocketHandler;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -23,6 +26,12 @@ public class AdminController {
 
     @Autowired
     RequirementRepository requirementRepository;
+
+    @Autowired
+    NotificationRepository notificationRepository;
+
+    @Autowired
+    ChatWebSocketHandler chatWebSocketHandler;
 
     @Autowired
     PasswordEncoder encoder;
@@ -60,6 +69,7 @@ public class AdminController {
                 service.put("companyName", companyName);
                 service.put("serviceType", "Company Incorporation");
                 service.put("details", data);
+                service.put("sectionStatuses", r.getSectionStatuses());
                 service.put("totalPrice", "SGD 1,500");
                 service.put("staff", r.getStaff() != null ? r.getStaff() : "Unassigned");
                 userServices.add(service);
@@ -84,16 +94,119 @@ public class AdminController {
         if (reqOpt.isEmpty()) return ResponseEntity.notFound().build();
         
         Requirement req = reqOpt.get();
+        boolean statusChanged = false;
+        String newStatus = null;
         if (body.containsKey("status")) {
-            req.setStatus((String) body.get("status"));
+            newStatus = (String) body.get("status");
+            if (!Objects.equals(newStatus, req.getStatus())) {
+                req.setStatus(newStatus);
+                statusChanged = true;
+            }
         }
+        
+        boolean staffChanged = false;
+        String newStaff = null;
         if (body.containsKey("staff")) {
-            req.setStaff((String) body.get("staff"));
+            newStaff = (String) body.get("staff");
+            if (!Objects.equals(newStaff, req.getStaff())) {
+                req.setStaff(newStaff);
+                staffChanged = true;
+            }
+        }
+        
+        if (body.containsKey("sectionStatuses")) {
+            req.setSectionStatuses((Map<String, Map<String, Object>>) body.get("sectionStatuses"));
         }
         req.setUpdatedAt(new Date());
-        requirementRepository.save(req);
+        Requirement saved = requirementRepository.save(req);
+
+        if (statusChanged) {
+            Notification notif = new Notification();
+            notif.setId("notif-" + System.currentTimeMillis());
+            notif.setClientId(req.getUserId());
+            notif.setTitle("Application Status Update");
+            String companyName = "Your incorporation application";
+            Map<String, Object> data = req.getData();
+            if (data != null && data.containsKey("names")) {
+                Object namesObj = data.get("names");
+                if (namesObj instanceof List) {
+                    List<String> names = (List<String>) namesObj;
+                    if (!names.isEmpty()) companyName = names.get(0);
+                }
+            }
+            notif.setMessage("The status of " + companyName + " has been updated to '" + newStatus + "'.");
+            notif.setType("status_update");
+            notif.setRelatedId(req.getId());
+            notif.setTimestamp(System.currentTimeMillis());
+            notif.setReadBy(new ArrayList<>());
+            
+            notificationRepository.save(notif);
+            chatWebSocketHandler.broadcastNotification(notif);
+        }
+
+        if (staffChanged && newStaff != null && !newStaff.equalsIgnoreCase("Unassigned")) {
+            String staffId = null;
+            List<User> users = userRepository.findAll();
+            for (User u : users) {
+                if ("STAFF".equalsIgnoreCase(u.getRole()) || "ADMIN".equalsIgnoreCase(u.getRole())) {
+                    String fullName = (u.getFirstName() + " " + u.getLastName()).trim();
+                    if (fullName.equalsIgnoreCase(newStaff.trim())) {
+                        staffId = u.getId();
+                        break;
+                    }
+                }
+            }
+            if (staffId != null) {
+                Notification notif = new Notification();
+                notif.setId("notif-" + System.currentTimeMillis());
+                notif.setClientId(staffId);
+                notif.setTitle("New Task Assigned");
+                String companyName = "incorporation application";
+                Map<String, Object> data = req.getData();
+                if (data != null && data.containsKey("names")) {
+                    Object namesObj = data.get("names");
+                    if (namesObj instanceof List) {
+                        List<String> names = (List<String>) namesObj;
+                        if (!names.isEmpty()) companyName = names.get(0);
+                    }
+                }
+                notif.setMessage("You have been assigned to " + companyName + ".");
+                notif.setType("assignment");
+                notif.setRelatedId(req.getId());
+                notif.setTimestamp(System.currentTimeMillis());
+                notif.setReadBy(new ArrayList<>());
+                
+                notificationRepository.save(notif);
+                chatWebSocketHandler.broadcastNotification(notif);
+            }
+        }
         
-        return ResponseEntity.ok(req);
+        return ResponseEntity.ok(saved);
+    }
+
+    @PostMapping("/documents/request")
+    public ResponseEntity<?> requestDocument(@RequestBody Map<String, String> body) {
+        String clientId = body.get("clientId");
+        String documentType = body.get("documentType");
+        
+        if (clientId == null || documentType == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "clientId and documentType are required"));
+        }
+        
+        Notification notif = new Notification();
+        notif.setId("notif-" + System.currentTimeMillis());
+        notif.setClientId(clientId);
+        notif.setTitle("Document Upload Request");
+        notif.setMessage("Please upload your " + documentType + " as requested.");
+        notif.setType("document_request");
+        notif.setRelatedId(documentType);
+        notif.setTimestamp(System.currentTimeMillis());
+        notif.setReadBy(new ArrayList<>());
+        
+        notificationRepository.save(notif);
+        chatWebSocketHandler.broadcastNotification(notif);
+        
+        return ResponseEntity.ok(notif);
     }
 
 
@@ -130,6 +243,7 @@ public class AdminController {
         
         User staff = new User(firstName, lastName, email, encodedPassword);
         staff.setRole("STAFF");
+        staff.setPlainPassword(rawPassword);
         userRepository.save(staff);
         
         Map<String, String> response = new HashMap<>();
@@ -153,6 +267,7 @@ public class AdminController {
                 staff.put("firstName", u.getFirstName());
                 staff.put("lastName", u.getLastName());
                 staff.put("email", u.getEmail());
+                staff.put("password", u.getPlainPassword() != null ? u.getPlainPassword() : "password123");
                 staffList.add(staff);
             }
         }

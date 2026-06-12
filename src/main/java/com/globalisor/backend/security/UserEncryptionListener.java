@@ -27,6 +27,9 @@ public class UserEncryptionListener extends AbstractMongoEventListener<User> {
             if (doc.containsKey("email")) {
                 doc.put("email", encryptionUtils.encryptQueryable(doc.getString("email")));
             }
+            if (doc.containsKey("plainPassword") && doc.get("plainPassword") != null) {
+                doc.put("plainPassword", encryptionUtils.encryptStrong(doc.getString("plainPassword")));
+            }
         }
     }
 
@@ -50,6 +53,12 @@ public class UserEncryptionListener extends AbstractMongoEventListener<User> {
             if (doc.containsKey("email")) {
                 try {
                     doc.put("email", encryptionUtils.decryptQueryable(doc.getString("email")));
+                } catch (Exception e) {
+                }
+            }
+            if (doc.containsKey("plainPassword") && doc.get("plainPassword") != null) {
+                try {
+                    doc.put("plainPassword", encryptionUtils.decryptStrong(doc.getString("plainPassword")));
                 } catch (Exception e) {
                 }
             }

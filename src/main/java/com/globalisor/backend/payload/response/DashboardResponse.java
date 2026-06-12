@@ -32,5 +32,7 @@ public class DashboardResponse {
         private int rejectedCount;
         private List<String> serviceTypes;
         private String latestStaff;
+        private boolean isOnline;
+        private Long lastSeenTime;
     }
 }

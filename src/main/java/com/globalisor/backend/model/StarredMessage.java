@@ -7,15 +7,16 @@ import org.springframework.data.mongodb.core.mapping.Document;
 
 @Data
 @NoArgsConstructor
-@Document(collection = "messages")
-public class Message {
+@Document(collection = "starred_messages")
+public class StarredMessage {
     @Id
     private String id;
-    private String clientId;
-    private String senderId;
-    private String senderName;
-    private String senderRole;
-    private String text;
+    private String userId;
+    private String messageId;
     private Long timestamp = System.currentTimeMillis();
-    private Boolean isRead = false;
+
+    public StarredMessage(String userId, String messageId) {
+        this.userId = userId;
+        this.messageId = messageId;
+    }
 }

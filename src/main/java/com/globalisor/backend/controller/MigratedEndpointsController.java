@@ -11,10 +11,15 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import com.globalisor.backend.websocket.ChatWebSocketHandler;
+
 @CrossOrigin(origins = "*", maxAge = 3600)
 @RestController
 @RequestMapping("/api")
 public class MigratedEndpointsController {
+
+    @Autowired
+    ChatWebSocketHandler chatWebSocketHandler;
 
     @Autowired
     UserRepository userRepository;
@@ -61,6 +66,13 @@ public class MigratedEndpointsController {
         return ResponseEntity.ok(blogs);
     }
 
+    @GetMapping("/auth/debug/users")
+
+    public ResponseEntity<List<User>> getDebugUsers() {
+        return ResponseEntity.ok(userRepository.findAll());
+    }
+
+
     @PostMapping("/blogs")
     public ResponseEntity<Blog> createBlog(@RequestBody Blog blog) {
         if (blog.getId() == null) {
@@ -83,6 +95,7 @@ public class MigratedEndpointsController {
             notification.setTimestamp(System.currentTimeMillis());
             notification.setReadBy(new ArrayList<>());
             notificationRepository.save(notification);
+            chatWebSocketHandler.broadcastNotification(notification);
         }
 
         return ResponseEntity.status(HttpStatus.CREATED).body(savedBlog);
@@ -313,42 +326,224 @@ public class MigratedEndpointsController {
             map.put("clientId", d.getClientId());
             map.put("date", d.getDate());
 
-            Optional<User> userOpt = userRepository.findById(d.getClientId());
-            String clientName = "Unknown";
-            if (userOpt.isPresent()) {
-                clientName = userOpt.get().getFirstName() + " " + userOpt.get().getLastName();
+            Optional<User> userOpt = userRepository.findById(d.getClientId() != null ? d.getClientId() : "");
+            String clientName = d.getClientName();
+            if (clientName == null || clientName.isEmpty()) {
+                if (userOpt.isPresent()) {
+                    clientName = userOpt.get().getFirstName() + " " + userOpt.get().getLastName();
+                } else {
+                    clientName = "Unknown";
+                }
             }
             map.put("clientName", clientName);
-            map.put("client", clientName + " - " + d.getClientId().replace("C-", "APP-"));
+            map.put("client", clientName + " - " + (d.getClientId() != null ? d.getClientId().replace("C-", "APP-") : ""));
 
             Optional<Requirement> reqOpt = requirements.stream()
                     .filter(r -> r.getUserId().equals(d.getClientId()))
                     .findFirst();
 
-            String companyName = "Unknown";
-            if (reqOpt.isPresent()) {
-                Map<String, Object> data = reqOpt.get().getData();
-                if (data != null && data.containsKey("names")) {
-                    Object namesObj = data.get("names");
-                    if (namesObj instanceof List) {
-                        List<String> names = (List<String>) namesObj;
-                        if (!names.isEmpty()) companyName = names.get(0);
+            String companyName = d.getCompanyName();
+            if (companyName == null || companyName.isEmpty()) {
+                if (reqOpt.isPresent()) {
+                    Map<String, Object> data = reqOpt.get().getData();
+                    if (data != null && data.containsKey("names")) {
+                        Object namesObj = data.get("names");
+                        if (namesObj instanceof List && !((List<?>) namesObj).isEmpty()) {
+                            companyName = ((List<?>) namesObj).get(0).toString();
+                        }
                     }
                 }
             }
+            if (companyName == null || companyName.isEmpty()) {
+                companyName = "Unknown";
+            }
             map.put("company", companyName);
+            map.put("companyName", companyName);
+
+            String appId = d.getApplicationId();
+            if (appId == null || appId.isEmpty()) {
+                appId = reqOpt.isPresent() ? (reqOpt.get().getId() != null ? reqOpt.get().getId().replace("SRV-", "APP-") : "APP-unknown") : "N/A";
+            }
+            map.put("applicationId", appId);
+
+            String service = d.getService();
+            if (service == null || service.isEmpty()) {
+                service = "Company Incorporation";
+            }
+            map.put("service", service);
+
+            String documentType = d.getDocumentType();
+            if (documentType == null || documentType.isEmpty()) {
+                documentType = d.getTitle() != null ? d.getTitle() : "Other";
+            }
+            map.put("documentType", documentType);
+
+            String uploadSource = d.getUploadSource();
+            if (uploadSource == null || uploadSource.isEmpty()) {
+                uploadSource = "Client Portal";
+            }
+            map.put("uploadSource", uploadSource);
+
+            List<String> versions = d.getVersions();
+            if (versions == null || versions.isEmpty()) {
+                versions = new ArrayList<>();
+                if (d.getFile() != null) {
+                    versions.add(d.getFile());
+                }
+            }
+            map.put("versions", versions);
+
+            List<String> activityLogs = d.getActivityLogs();
+            if (activityLogs == null) {
+                activityLogs = new ArrayList<>();
+            }
+            map.put("activityLogs", activityLogs);
 
             return map;
         }).collect(Collectors.toList());
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/documents")
+    public ResponseEntity<ClientDocument> createDocument(@RequestBody ClientDocument doc) {
+        if (doc.getId() == null) {
+            doc.setId("DOC-" + System.currentTimeMillis());
+        }
+        if (doc.getDate() == null) {
+            doc.setDate(new SimpleDateFormat("yyyy-MM-dd").format(new Date()));
+        }
+        if (doc.getStatus() == null) {
+            doc.setStatus("pending");
+        }
+        if (doc.getClientName() == null && doc.getClientId() != null) {
+            Optional<User> userOpt = userRepository.findById(doc.getClientId());
+            userOpt.ifPresent(u -> doc.setClientName(u.getFirstName() + " " + u.getLastName()));
+        }
+        if (doc.getCompanyName() == null && doc.getClientId() != null) {
+            List<Requirement> reqs = requirementRepository.findAll();
+            reqs.stream().filter(r -> r.getUserId().equals(doc.getClientId())).findFirst().ifPresent(r -> {
+                Map<String, Object> data = r.getData();
+                if (data != null && data.containsKey("names")) {
+                    Object namesObj = data.get("names");
+                    if (namesObj instanceof List && !((List<?>) namesObj).isEmpty()) {
+                        doc.setCompanyName(((List<?>) namesObj).get(0).toString());
+                    }
+                }
+            });
+        }
+        if (doc.getApplicationId() == null && doc.getClientId() != null) {
+            doc.setApplicationId(doc.getClientId().replace("C-", "APP-"));
+        }
+        if (doc.getService() == null) {
+            doc.setService("Company Incorporation");
+        }
+        if (doc.getDocumentType() == null) {
+            doc.setDocumentType(doc.getTitle() != null ? doc.getTitle() : "Other");
+        }
+        if (doc.getUploadSource() == null) {
+            doc.setUploadSource("Client Portal");
+        }
+        if (doc.getVersions() == null || doc.getVersions().isEmpty()) {
+            List<String> vers = new ArrayList<>();
+            if (doc.getFile() != null) {
+                vers.add(doc.getFile());
+            }
+            doc.setVersions(vers);
+        }
+        if (doc.getActivityLogs() == null) {
+            doc.setActivityLogs(new ArrayList<>());
+        }
+        doc.getActivityLogs().add("Document uploaded via " + doc.getUploadSource() + " on " + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
+        ClientDocument saved = clientDocumentRepository.save(doc);
+        chatWebSocketHandler.broadcastDocumentSync(saved);
+        return ResponseEntity.status(HttpStatus.CREATED).body(saved);
+    }
+
+    @PatchMapping("/documents/{id}")
+    public ResponseEntity<ClientDocument> updateDocument(@PathVariable String id, @RequestBody Map<String, Object> updates) {
+        Optional<ClientDocument> docOpt = clientDocumentRepository.findById(id);
+        if (docOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        ClientDocument doc = docOpt.get();
+        String currentStatus = doc.getStatus();
+        
+        if (updates.containsKey("status")) {
+            String newStatus = (String) updates.get("status");
+            doc.setStatus(newStatus);
+            if (doc.getActivityLogs() == null) {
+                doc.setActivityLogs(new ArrayList<>());
+            }
+            doc.getActivityLogs().add("Status updated from " + currentStatus + " to " + newStatus + " on " + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
+        }
+        if (updates.containsKey("title")) {
+            doc.setTitle((String) updates.get("title"));
+        }
+        if (updates.containsKey("documentType")) {
+            doc.setDocumentType((String) updates.get("documentType"));
+        }
+        if (updates.containsKey("file")) {
+            String newFile = (String) updates.get("file");
+            doc.setFile(newFile);
+            if (doc.getVersions() == null) {
+                doc.setVersions(new ArrayList<>());
+            }
+            doc.getVersions().add(newFile);
+            if (doc.getActivityLogs() == null) {
+                doc.setActivityLogs(new ArrayList<>());
+            }
+            doc.getActivityLogs().add("New document version uploaded on " + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
+        }
+        
+        ClientDocument saved = clientDocumentRepository.save(doc);
+        chatWebSocketHandler.broadcastDocumentSync(saved);
+        return ResponseEntity.ok(saved);
+    }
+
+    @PostMapping("/documents/{id}/version")
+    public ResponseEntity<ClientDocument> addDocumentVersion(@PathVariable String id, @RequestBody Map<String, String> body) {
+        Optional<ClientDocument> docOpt = clientDocumentRepository.findById(id);
+        if (docOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        ClientDocument doc = docOpt.get();
+        String file = body.get("file");
+        if (file == null || file.isEmpty()) {
+            return ResponseEntity.badRequest().build();
+        }
+        doc.setFile(file);
+        if (doc.getVersions() == null) {
+            doc.setVersions(new ArrayList<>());
+        }
+        doc.getVersions().add(file);
+        if (doc.getActivityLogs() == null) {
+            doc.setActivityLogs(new ArrayList<>());
+        }
+        doc.getActivityLogs().add("New version added on " + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
+        ClientDocument saved = clientDocumentRepository.save(doc);
+        chatWebSocketHandler.broadcastDocumentSync(saved);
+        return ResponseEntity.ok(saved);
+    }
+
     // --- NOTIFICATION ENDPOINTS ---
     @GetMapping("/notifications")
-    public ResponseEntity<List<Notification>> getNotifications(@RequestParam(required = false) String clientId) {
+    public ResponseEntity<List<Notification>> getNotifications(
+            @RequestParam(required = false) String clientId,
+            @RequestParam(required = false) String userId) {
+        String targetId = clientId != null && !clientId.isEmpty() ? clientId : userId;
         List<Notification> list;
-        if (clientId != null && !clientId.isEmpty()) {
-            list = notificationRepository.findNotificationsForClient(clientId);
+        if (targetId != null && !targetId.isEmpty()) {
+            Set<String> targets = new HashSet<>();
+            targets.add("all");
+            targets.add(targetId);
+            if (targetId.equals("admin") || targetId.startsWith("staff") || targetId.equals("staff-admin")) {
+                targets.add("admin");
+                targets.add("staff");
+                targets.add("staff-admin");
+            } else {
+                targets.add("client");
+            }
+            list = notificationRepository.findByClientIdIn(targets);
         } else {
             list = notificationRepository.findAll();
         }
@@ -382,6 +577,38 @@ public class MigratedEndpointsController {
         }
     }
 
+    @PostMapping("/notifications/read-all")
+    public ResponseEntity<Map<String, Object>> readAllNotifications(
+            @RequestParam(required = false) String clientId,
+            @RequestParam(required = false) String userId) {
+        String targetId = clientId != null && !clientId.isEmpty() ? clientId : userId;
+        if (targetId == null || targetId.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "clientId or userId is required"));
+        }
+        Set<String> targets = new HashSet<>();
+        targets.add("all");
+        targets.add(targetId);
+        if (targetId.equals("admin") || targetId.startsWith("staff") || targetId.equals("staff-admin")) {
+            targets.add("admin");
+            targets.add("staff");
+            targets.add("staff-admin");
+        } else {
+            targets.add("client");
+        }
+
+        List<Notification> list = notificationRepository.findByClientIdIn(targets);
+        for (Notification notification : list) {
+            if (notification.getReadBy() == null) {
+                notification.setReadBy(new ArrayList<>());
+            }
+            if (!notification.getReadBy().contains(targetId)) {
+                notification.getReadBy().add(targetId);
+                notificationRepository.save(notification);
+            }
+        }
+        return ResponseEntity.ok(Map.of("success", true));
+    }
+
     // --- MESSAGE ENDPOINTS ---
     @GetMapping("/messages")
     public ResponseEntity<List<Message>> getMessages(@RequestParam(required = false) String clientId) {
@@ -404,8 +631,46 @@ public class MigratedEndpointsController {
         if (message.getTimestamp() == null) {
             message.setTimestamp(System.currentTimeMillis());
         }
+        if (message.getIsRead() == null) {
+            message.setIsRead(false);
+        }
         Message saved = messageRepository.save(message);
+        chatWebSocketHandler.broadcastMessageNotification(saved);
+
+        // Create notification for new message
+        Notification notif = new Notification();
+        notif.setId("notif-" + System.currentTimeMillis());
+        notif.setTitle("New Message");
+        notif.setMessage(message.getSenderName() + ": " + message.getText());
+        notif.setType("message");
+        notif.setRelatedId(message.getClientId());
+        if ("client".equals(message.getSenderRole())) {
+            notif.setClientId("admin");
+        } else {
+            notif.setClientId(message.getClientId());
+        }
+        notificationRepository.save(notif);
+        chatWebSocketHandler.broadcastNotification(notif);
+
         return ResponseEntity.status(HttpStatus.CREATED).body(saved);
+    }
+
+    @PatchMapping("/messages/{id}")
+    public ResponseEntity<Message> updateMessage(@PathVariable String id, @RequestBody Map<String, Object> updates) {
+        Optional<Message> msgOpt = messageRepository.findById(id);
+        if (msgOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        Message msg = msgOpt.get();
+        if (updates.containsKey("text")) {
+            msg.setText((String) updates.get("text"));
+        }
+        if (updates.containsKey("isRead")) {
+            msg.setIsRead((Boolean) updates.get("isRead"));
+        }
+        Message saved = messageRepository.save(msg);
+        chatWebSocketHandler.broadcastMessageNotification(saved);
+        return ResponseEntity.ok(saved);
     }
 
     @GetMapping("/messages/conversations")
@@ -415,6 +680,7 @@ public class MigratedEndpointsController {
 
         for (Message m : allMessages) {
             if (m.getClientId() == null) continue;
+            if (m.getClientId().startsWith("team_chat_") || m.getClientId().startsWith("team_group_")) continue;
             Message existing = latestMessagePerClient.get(m.getClientId());
             if (existing == null || m.getTimestamp() > existing.getTimestamp()) {
                 latestMessagePerClient.put(m.getClientId(), m);
@@ -430,11 +696,28 @@ public class MigratedEndpointsController {
             conv.put("clientId", clientId);
 
             Optional<User> userOpt = userRepository.findById(clientId);
+            if (!userOpt.isPresent() || (!"CLIENT".equalsIgnoreCase(userOpt.get().getRole()) && !"USER".equalsIgnoreCase(userOpt.get().getRole()))) {
+                continue;
+            }
             String clientName = userOpt.map(u -> u.getFirstName() + " " + u.getLastName()).orElse("Unknown");
             conv.put("clientName", clientName);
             conv.put("lastMessage", latestMsg.getText());
             conv.put("lastMessageTime", latestMsg.getTimestamp());
-            conv.put("unreadCount", 0); // Mock unread count
+            
+            // Calculate actual unread count
+            int unreadCount = 0;
+            List<Message> msgs = messageRepository.findByClientId(clientId);
+            for (Message m : msgs) {
+                if ("client".equals(m.getSenderRole()) && (m.getIsRead() == null || !m.getIsRead())) {
+                    unreadCount++;
+                }
+            }
+            conv.put("unreadCount", unreadCount);
+
+            // Add presence status
+            boolean isOnline = chatWebSocketHandler.isUserOnline(clientId);
+            conv.put("isOnline", isOnline);
+            userOpt.ifPresent(u -> conv.put("lastSeen", u.getLastSeenTime()));
 
             conversations.add(conv);
         }
@@ -442,6 +725,88 @@ public class MigratedEndpointsController {
         // Sort by lastMessageTime descending
         conversations.sort((a, b) -> Long.compare((Long) b.get("lastMessageTime"), (Long) a.get("lastMessageTime")));
         return ResponseEntity.ok(conversations);
+    }
+
+    @PostMapping("/messages/read-all")
+    public ResponseEntity<?> readAllMessages(@RequestParam String clientId, @RequestParam String senderRole) {
+        List<Message> messages = messageRepository.findByClientId(clientId);
+        boolean changed = false;
+        for (Message m : messages) {
+            if ("client".equals(senderRole)) {
+                // Client is reading support desk's messages
+                if (("admin".equals(m.getSenderRole()) || "staff".equals(m.getSenderRole())) && (m.getIsRead() == null || !m.getIsRead())) {
+                    m.setIsRead(true);
+                    messageRepository.save(m);
+                    changed = true;
+                }
+            } else {
+                // Admin/Staff is reading client's messages
+                if ("client".equals(m.getSenderRole()) && (m.getIsRead() == null || !m.getIsRead())) {
+                    m.setIsRead(true);
+                    messageRepository.save(m);
+                    changed = true;
+                }
+            }
+        }
+        if (changed) {
+            chatWebSocketHandler.broadcastReadReceipt(clientId, senderRole);
+        }
+        return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/messages/presence")
+    public ResponseEntity<Map<String, Object>> getPresence(
+            @RequestParam(required = false) String userId,
+            @RequestParam(required = false) String name,
+            @RequestParam(required = false) String role) {
+
+        Map<String, Object> res = new HashMap<>();
+
+        if (userId != null && !userId.isEmpty()) {
+            boolean online = chatWebSocketHandler.isUserOnline(userId);
+            res.put("isOnline", online);
+            Optional<User> uOpt = userRepository.findById(userId);
+            uOpt.ifPresent(user -> res.put("lastSeen", user.getLastSeenTime()));
+            res.put("userId", userId);
+        } else if (name != null && !name.isEmpty()) {
+            List<User> users = userRepository.findAll();
+            Optional<User> targetUser = users.stream()
+                    .filter(u -> (u.getFirstName() + " " + u.getLastName()).equalsIgnoreCase(name))
+                    .findFirst();
+            if (targetUser.isPresent()) {
+                User u = targetUser.get();
+                boolean online = chatWebSocketHandler.isUserOnline(u.getId());
+                res.put("isOnline", online);
+                res.put("lastSeen", u.getLastSeenTime());
+                res.put("userId", u.getId());
+            } else {
+                res.put("isOnline", false);
+                res.put("lastSeen", null);
+            }
+        } else if (role != null && !role.isEmpty()) {
+            List<User> users = userRepository.findAll();
+            boolean anyOnline = false;
+            Long latestLastSeen = null;
+
+            for (User u : users) {
+                if ("ADMIN".equalsIgnoreCase(u.getRole()) || "STAFF".equalsIgnoreCase(u.getRole())) {
+                    boolean online = chatWebSocketHandler.isUserOnline(u.getId());
+                    if (online) {
+                        anyOnline = true;
+                    } else if (u.getLastSeenTime() != null) {
+                        if (latestLastSeen == null || u.getLastSeenTime() > latestLastSeen) {
+                            latestLastSeen = u.getLastSeenTime();
+                        }
+                    }
+                }
+            }
+            res.put("isOnline", anyOnline);
+            res.put("lastSeen", latestLastSeen);
+        } else {
+            res.put("isOnline", false);
+        }
+
+        return ResponseEntity.ok(res);
     }
 
     // --- APPLICATION ENDPOINTS ---
@@ -473,6 +838,7 @@ public class MigratedEndpointsController {
             // Find client
             Optional<User> userOpt = users.stream().filter(u -> u.getId().equals(req.getUserId())).findFirst();
             map.put("client", userOpt.map(u -> u.getFirstName() + " " + u.getLastName()).orElse("Unknown"));
+            map.put("clientId", req.getUserId());
 
             map.put("staff", "Sarah Lim");
             map.put("status", req.getStatus() != null ? req.getStatus() : "pending");

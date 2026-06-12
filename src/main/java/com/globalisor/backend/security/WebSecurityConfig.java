@@ -84,9 +84,12 @@ public class WebSecurityConfig {
                         .requestMatchers("/api/compliance/**").permitAll()
                         .requestMatchers("/api/documents/**").permitAll()
                         .requestMatchers("/api/notifications/**").permitAll()
-                        .requestMatchers("/api/messages/**").permitAll()
+                        .requestMatchers("/api/messages/**", "/api/ws/**").permitAll()
                         .requestMatchers("/api/reports/**").permitAll()
                         .requestMatchers("/api/catalog/**").permitAll()
+                        .requestMatchers("/api/prereg-sections/published").permitAll()
+                        .requestMatchers("/api/prereg-sections/preview").permitAll()
+                        .requestMatchers("/api/requirements/**").permitAll()
                         .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated()
                 );

@@ -7,6 +7,7 @@ import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.util.Map;
 import java.util.Date;
+import java.util.HashMap;
 
 @Data
 @NoArgsConstructor
@@ -19,6 +20,7 @@ public class Requirement {
     private String staff = "Unassigned";
     private Date createdAt = new Date();
     private Date updatedAt = new Date();
+    private Map<String, Map<String, Object>> sectionStatuses = new HashMap<>();
     private Map<String, Object> data;
 
     public Requirement(String userId, Map<String, Object> data) {

@@ -22,6 +22,7 @@ public class PreRegSection {
     private Integer sortOrder;
     private String status = "DRAFT"; // "DRAFT", "PUBLISHED", "UNPUBLISHED"
     private List<Map<String, Object>> fields;
+    private String applicableServices = "All";
 
     // Version History
     private String lastUpdatedBy = "Admin";
@@ -38,6 +39,7 @@ public class PreRegSection {
         this.type = type;
         this.sortOrder = sortOrder;
         this.fields = fields;
+        this.applicableServices = "All";
         this.status = "PUBLISHED";
         this.lastUpdatedAt = new Date();
         this.lastUpdatedBy = "System";
@@ -50,7 +52,8 @@ public class PreRegSection {
             "description", description,
             "type", type,
             "sortOrder", sortOrder,
-            "fields", fields
+            "fields", fields,
+            "applicableServices", "All"
         );
     }
 }
