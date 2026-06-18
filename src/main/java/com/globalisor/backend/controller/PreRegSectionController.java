@@ -20,65 +20,43 @@ public class PreRegSectionController {
     PreRegSectionRepository preRegSectionRepository;
 
     private void seedDefaultSections() {
-        if (preRegSectionRepository.count() > 0) return;
+        if (preRegSectionRepository.existsById("sec-names") && preRegSectionRepository.count() == 6) return;
+
+        preRegSectionRepository.deleteAll();
 
         List<PreRegSection> defaults = new ArrayList<>();
 
         // 1. Company Name
         List<Map<String, Object>> nameFields = List.of(
             createField("names[0]", "Proposed Name Option 1", "text", true, "Primary preferred name", null),
-            createField("names[1]", "Proposed Name Option 2", "text", false, "Backup name if Option 1 is unavailable", null),
+            createField("names[1]", "Proposed Name Option 2", "text", true, "Backup name if Option 1 is unavailable", null),
             createField("names[2]", "Proposed Name Option 3", "text", false, "Alternative name or enter NA", null),
             createField("activities.primary", "Primary Business Activity", "text", true, "E.g. Software Development", null),
-            createField("activities.secondary", "Secondary Business Activity", "text", false, "E.g. IT Consulting", null)
+            createField("activities.secondary", "Secondary Business Activity", "text", false, "E.g. IT Consulting", null),
+            createField("names[3]", "Proposed Name Option 4", "text", false, "", null)
         );
-        defaults.add(new PreRegSection("sec-company-name", "company-name", "Company Name", "Selection & Activities", "form", 1, nameFields));
+        defaults.add(new PreRegSection("sec-names", "names", "Company Name", "Proposed names and activities for ACRA verification", "form", 1, nameFields));
 
-        // 2. Directors
-        List<Map<String, Object>> directorFields = List.of(
-            createField("name", "Full Name", "text", true, "As in Passport/ID", null),
-            createField("idType", "Director Type", "select", true, null, List.of("local:Local (NRIC/FIN)", "foreigner:Foreigner (Passport)")),
-            createField("idNum", "ID / Passport Number", "text", true, "NRIC/FIN or Passport No.", null),
-            createField("dob", "Date of Birth", "date", true, null, null),
-            createField("phone", "Contact Number", "text", true, "E.g. +65 9123 4567", null),
-            createField("passportExpiry", "Passport Expiry Date (Foreigner only)", "date", false, null, null),
-            createField("docs.id", "ID / Passport Copy", "file", true, null, null),
-            createField("docs.address", "Address Proof (Utility Bill / Bank Statement)", "file", true, null, null)
-        );
-        defaults.add(new PreRegSection("sec-directors", "directors", "Directors", "Entity Setup", "repeater", 2, directorFields));
+        // 2. Directors & Shareholders
+        defaults.add(new PreRegSection("sec-directors-shareholders", "directors-shareholders", "Directors & Shareholders", "Details of company directors and shareholders", "form", 2, new ArrayList<>()));
 
-        // 3. Shareholders
-        List<Map<String, Object>> shFields = List.of(
-            createField("type", "Shareholder Type", "select", true, null, List.of("individual:Individual", "corporate:Corporate")),
-            createField("name", "Name / Company Name", "text", true, "Full Name or Registered Entity Name", null),
-            createField("shares", "Number of Shares", "number", true, "E.g. 1000", null),
-            createField("percent", "% Held", "number", true, "E.g. 100", null),
-            createField("docs.doc1", "ID Proof / Cert of Incorporation", "file", true, null, null),
-            createField("docs.doc2", "Address Proof / M&A", "file", true, null, null)
-        );
-        defaults.add(new PreRegSection("sec-shareholders", "shareholders", "Shareholders", "Ownership Structure", "repeater", 3, shFields));
+        // 3. Add-on Services
+        defaults.add(new PreRegSection("sec-addons", "addons", "Add-on Services", "Select additional corporate and compliance services", "form", 3, new ArrayList<>()));
 
-        // 4. Paid-Up Capital
-        List<Map<String, Object>> capitalFields = List.of(
-            createField("capital.issued", "Issued Capital", "number", true, "E.g. 1000", null),
-            createField("capital.numShares", "Number of Shares", "number", true, "E.g. 1000", null),
-            createField("capital.currency", "Currency", "text", true, "E.g. SGD", null)
-        );
-        defaults.add(new PreRegSection("sec-capital", "capital", "Paid-Up Capital", "Share Structure", "form", 4, capitalFields));
+        // 4. Registered Office
+        defaults.add(new PreRegSection("sec-office", "office", "Registered Office", "Singapore registered office details", "form", 4, new ArrayList<>()));
 
-        // 5. Registered Office Address
-        List<Map<String, Object>> officeFields = List.of(
-            createField("office.useService", "Office Address Option", "select", true, null, List.of("true:Globalisor Premium CBD Address", "false:Provide Own Address")),
-            createField("office.address", "Office Address", "textarea", false, "Enter your own address if not using Globalisor service", null)
+        // 5. Your package is up Next
+        List<Map<String, Object>> contactFields = List.of(
+            createField("contact.firstName", "First Name", "text", true, "First name", null),
+            createField("contact.lastName", "Last Name", "text", true, "Last name", null),
+            createField("contact.phone", "Contact Number", "text", true, "+65 1234 5678", null),
+            createField("contact.email", "Email ID", "text", true, "email@example.com", null)
         );
-        defaults.add(new PreRegSection("sec-office", "office", "Registered Office Address", "Registered Address", "form", 5, officeFields));
+        defaults.add(new PreRegSection("sec-package-next", "contact", "Your package is up Next", "Provide your contact information for package processing", "form", 5, contactFields));
 
-        // 6. Company Secretary
-        List<Map<String, Object>> secFields = List.of(
-            createField("secretary.required", "Secretary Option", "select", true, null, List.of("true:Globalisor Corporate Secretary Service", "false:Provide Own Secretary")),
-            createField("secretary.details.name", "Secretary Name", "text", false, "Enter secretary name if providing own", null)
-        );
-        defaults.add(new PreRegSection("sec-secretary", "secretary", "Company Secretary", "Compliance Setup", "form", 6, secFields));
+        // 6. Package Summary & Payment
+        defaults.add(new PreRegSection("sec-checkout", "checkout", "Package Summary & Payment", "Review your details, select packages, and complete payment", "form", 6, new ArrayList<>()));
 
         preRegSectionRepository.saveAll(defaults);
     }
@@ -146,6 +124,10 @@ public class PreRegSectionController {
                 sMap.put("sortOrder", s.getSortOrder());
                 sMap.put("fields", s.getFields());
                 sMap.put("applicableServices", s.getApplicableServices());
+                sMap.put("checklists", s.getChecklists());
+                sMap.put("faqs", s.getFaqs());
+                sMap.put("attachments", s.getAttachments());
+                sMap.put("documents", s.getDocuments());
                 preview.add(sMap);
             }
         }
@@ -179,6 +161,10 @@ public class PreRegSectionController {
         section.setType(sectionUpdates.getType());
         section.setFields(sectionUpdates.getFields());
         section.setApplicableServices(sectionUpdates.getApplicableServices());
+        section.setChecklists(sectionUpdates.getChecklists());
+        section.setFaqs(sectionUpdates.getFaqs());
+        section.setAttachments(sectionUpdates.getAttachments());
+        section.setDocuments(sectionUpdates.getDocuments());
 
         // Don't allow changing key for default seeded sections
         if (!section.getId().startsWith("sec-")) {
@@ -238,6 +224,10 @@ public class PreRegSectionController {
         snapshot.put("sortOrder", section.getSortOrder());
         snapshot.put("fields", section.getFields());
         snapshot.put("applicableServices", section.getApplicableServices());
+        snapshot.put("checklists", section.getChecklists());
+        snapshot.put("faqs", section.getFaqs());
+        snapshot.put("attachments", section.getAttachments());
+        snapshot.put("documents", section.getDocuments());
         section.setPublishedData(snapshot);
 
         PreRegSection saved = preRegSectionRepository.save(section);

@@ -88,12 +88,16 @@ public class AdminController {
         return ResponseEntity.ok(response);
     }
 
+    @Autowired
+    private com.globalisor.backend.service.NotificationService notificationService;
+
     @PatchMapping("/services/{id}")
     public ResponseEntity<?> updateServiceStatus(@PathVariable String id, @RequestBody Map<String, Object> body) {
         Optional<Requirement> reqOpt = requirementRepository.findById(id);
         if (reqOpt.isEmpty()) return ResponseEntity.notFound().build();
         
         Requirement req = reqOpt.get();
+        String oldStaff = req.getStaff();
         boolean statusChanged = false;
         String newStatus = null;
         if (body.containsKey("status")) {
@@ -120,65 +124,141 @@ public class AdminController {
         req.setUpdatedAt(new Date());
         Requirement saved = requirementRepository.save(req);
 
-        if (statusChanged) {
-            Notification notif = new Notification();
-            notif.setId("notif-" + System.currentTimeMillis());
-            notif.setClientId(req.getUserId());
-            notif.setTitle("Application Status Update");
-            String companyName = "Your incorporation application";
-            Map<String, Object> data = req.getData();
-            if (data != null && data.containsKey("names")) {
-                Object namesObj = data.get("names");
-                if (namesObj instanceof List) {
-                    List<String> names = (List<String>) namesObj;
-                    if (!names.isEmpty()) companyName = names.get(0);
-                }
+        String companyName = "Your incorporation application";
+        Map<String, Object> data = req.getData();
+        if (data != null && data.containsKey("names")) {
+            Object namesObj = data.get("names");
+            if (namesObj instanceof List && !((List<?>) namesObj).isEmpty()) {
+                companyName = ((List<?>) namesObj).get(0).toString();
             }
-            notif.setMessage("The status of " + companyName + " has been updated to '" + newStatus + "'.");
-            notif.setType("status_update");
-            notif.setRelatedId(req.getId());
-            notif.setTimestamp(System.currentTimeMillis());
-            notif.setReadBy(new ArrayList<>());
-            
-            notificationRepository.save(notif);
-            chatWebSocketHandler.broadcastNotification(notif);
         }
 
-        if (staffChanged && newStaff != null && !newStaff.equalsIgnoreCase("Unassigned")) {
-            String staffId = null;
-            List<User> users = userRepository.findAll();
-            for (User u : users) {
-                if ("STAFF".equalsIgnoreCase(u.getRole()) || "ADMIN".equalsIgnoreCase(u.getRole())) {
-                    String fullName = (u.getFirstName() + " " + u.getLastName()).trim();
-                    if (fullName.equalsIgnoreCase(newStaff.trim())) {
-                        staffId = u.getId();
-                        break;
-                    }
-                }
+        if (statusChanged) {
+            String clientPriority = "Info";
+            if ("approved".equalsIgnoreCase(newStatus) || "completed".equalsIgnoreCase(newStatus)) {
+                clientPriority = "Critical";
+            } else if ("rejected".equalsIgnoreCase(newStatus)) {
+                clientPriority = "Warning";
             }
-            if (staffId != null) {
-                Notification notif = new Notification();
-                notif.setId("notif-" + System.currentTimeMillis());
-                notif.setClientId(staffId);
-                notif.setTitle("New Task Assigned");
-                String companyName = "incorporation application";
-                Map<String, Object> data = req.getData();
-                if (data != null && data.containsKey("names")) {
-                    Object namesObj = data.get("names");
-                    if (namesObj instanceof List) {
-                        List<String> names = (List<String>) namesObj;
-                        if (!names.isEmpty()) companyName = names.get(0);
-                    }
-                }
-                notif.setMessage("You have been assigned to " + companyName + ".");
-                notif.setType("assignment");
-                notif.setRelatedId(req.getId());
-                notif.setTimestamp(System.currentTimeMillis());
-                notif.setReadBy(new ArrayList<>());
+            
+            try {
+                // Notify Client
+                notificationService.sendNotification(
+                        req.getUserId(),
+                        "Application Status Update",
+                        "The status of " + companyName + " has been updated to '" + newStatus + "'.",
+                        "status_update",
+                        req.getId(),
+                        clientPriority
+                );
                 
-                notificationRepository.save(notif);
-                chatWebSocketHandler.broadcastNotification(notif);
+                // Notify Admin / Staff
+                if ("approved".equalsIgnoreCase(newStatus) || "completed".equalsIgnoreCase(newStatus)) {
+                    notificationService.sendNotification(
+                            "admin",
+                            "Application Approved",
+                            companyName + " has been approved/completed.",
+                            "application",
+                            req.getId(),
+                            "Critical"
+                    );
+                } else if ("rejected".equalsIgnoreCase(newStatus)) {
+                    notificationService.sendNotification(
+                            "admin",
+                            "Application Rejected",
+                            companyName + " has been rejected.",
+                            "application",
+                            req.getId(),
+                            "Critical"
+                    );
+                }
+                
+                // Staff Assignment Accepted / Rejected
+                if ("In Progress".equalsIgnoreCase(newStatus) && req.getStaff() != null && !req.getStaff().equalsIgnoreCase("Unassigned")) {
+                    notificationService.sendNotification(
+                            "admin",
+                            "Staff Assignment Accepted",
+                            req.getStaff() + " has accepted the assignment for " + companyName + ".",
+                            "assignment",
+                            req.getId(),
+                            "Info"
+                    );
+                } else if (("escalated".equalsIgnoreCase(newStatus) || "rejected".equalsIgnoreCase(newStatus)) && req.getStaff() != null) {
+                    notificationService.sendNotification(
+                            "admin",
+                            "Staff Assignment Rejected",
+                            req.getStaff() + " has returned/rejected the assignment for " + companyName + ".",
+                            "assignment",
+                            req.getId(),
+                            "Warning"
+                    );
+                }
+            } catch (Exception e) {}
+        }
+
+        if (staffChanged && newStaff != null) {
+            String staffId = null;
+            if (!newStaff.equalsIgnoreCase("Unassigned")) {
+                List<User> users = userRepository.findAll();
+                for (User u : users) {
+                    if ("STAFF".equalsIgnoreCase(u.getRole()) || "ADMIN".equalsIgnoreCase(u.getRole())) {
+                        String fullName = (u.getFirstName() + " " + u.getLastName()).trim();
+                        if (fullName.equalsIgnoreCase(newStaff.trim())) {
+                            staffId = u.getId();
+                            break;
+                        }
+                    }
+                }
             }
+            
+            try {
+                // 1. Notify newly assigned staff
+                if (staffId != null) {
+                    notificationService.sendNotification(
+                            staffId,
+                            "New Application Assigned",
+                            "You have been assigned to " + companyName + ".",
+                            "assignment",
+                            req.getId(),
+                            "Info"
+                    );
+                }
+                
+                // 2. Notify old staff if reassigned
+                if (oldStaff != null && !oldStaff.equalsIgnoreCase("Unassigned") && !oldStaff.equalsIgnoreCase(newStaff)) {
+                    String oldStaffId = null;
+                    List<User> users = userRepository.findAll();
+                    for (User u : users) {
+                        String fullName = (u.getFirstName() + " " + u.getLastName()).trim();
+                        if (fullName.equalsIgnoreCase(oldStaff.trim())) {
+                            oldStaffId = u.getId();
+                            break;
+                        }
+                    }
+                    if (oldStaffId != null) {
+                        notificationService.sendNotification(
+                                oldStaffId,
+                                "Application Reassigned",
+                                "Application " + companyName + " has been reassigned to " + newStaff + ".",
+                                "assignment",
+                                req.getId(),
+                                "Warning"
+                        );
+                    }
+                }
+                
+                // 3. Notify Client
+                notificationService.sendNotification(
+                        req.getUserId(),
+                        "Staff Assigned",
+                        newStaff.equalsIgnoreCase("Unassigned") 
+                            ? "Specialist has been unassigned from your application."
+                            : newStaff + " has been assigned to guide you through your " + companyName + " application.",
+                        "assignment",
+                        req.getId(),
+                        "Info"
+                );
+            } catch (Exception e) {}
         }
         
         return ResponseEntity.ok(saved);
@@ -193,20 +273,19 @@ public class AdminController {
             return ResponseEntity.badRequest().body(Map.of("error", "clientId and documentType are required"));
         }
         
-        Notification notif = new Notification();
-        notif.setId("notif-" + System.currentTimeMillis());
-        notif.setClientId(clientId);
-        notif.setTitle("Document Upload Request");
-        notif.setMessage("Please upload your " + documentType + " as requested.");
-        notif.setType("document_request");
-        notif.setRelatedId(documentType);
-        notif.setTimestamp(System.currentTimeMillis());
-        notif.setReadBy(new ArrayList<>());
+        try {
+            // Client Notification
+            notificationService.sendNotification(
+                    clientId,
+                    "Document Upload Request",
+                    "Please upload your " + documentType + " as requested.",
+                    "document_request",
+                    documentType,
+                    "Warning"
+            );
+        } catch (Exception e) {}
         
-        notificationRepository.save(notif);
-        chatWebSocketHandler.broadcastNotification(notif);
-        
-        return ResponseEntity.ok(notif);
+        return ResponseEntity.ok(Map.of("success", true));
     }
 
 
@@ -246,6 +325,20 @@ public class AdminController {
         staff.setPlainPassword(rawPassword);
         userRepository.save(staff);
         
+        try {
+            Map<String, Object> event = new HashMap<>();
+            event.put("type", "new_user");
+            Map<String, Object> uMap = new HashMap<>();
+            uMap.put("id", staff.getId());
+            uMap.put("name", (staff.getFirstName() + " " + staff.getLastName()).trim());
+            uMap.put("role", staff.getRole());
+            uMap.put("email", staff.getEmail());
+            event.put("user", uMap);
+            chatWebSocketHandler.broadcastEvent(event);
+        } catch (Exception e) {
+            // ignore
+        }
+        
         Map<String, String> response = new HashMap<>();
         response.put("email", email);
         response.put("password", rawPassword);
@@ -272,5 +365,44 @@ public class AdminController {
             }
         }
         return ResponseEntity.ok(staffList);
+    }
+
+    @PutMapping("/admin/staff/update")
+    public ResponseEntity<?> updateStaff(@RequestBody Map<String, String> body) {
+        String email = body.get("email");
+        String firstName = body.get("firstName");
+        String lastName = body.get("lastName");
+        
+        String encryptedEmail = encryptionUtils.encryptQueryable(email);
+        Optional<User> userOpt = userRepository.findByEmail(encryptedEmail);
+        
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        User staff = userOpt.get();
+        if (firstName != null) staff.setFirstName(firstName);
+        if (lastName != null) staff.setLastName(lastName);
+        
+        userRepository.save(staff);
+        
+        Map<String, String> response = new HashMap<>();
+        response.put("email", email);
+        response.put("id", staff.getId());
+        response.put("firstName", staff.getFirstName());
+        response.put("lastName", staff.getLastName());
+        
+        return ResponseEntity.ok(response);
+    }
+
+    @DeleteMapping("/admin/staff/{id}")
+    public ResponseEntity<?> deleteStaff(@PathVariable String id) {
+        Optional<User> userOpt = userRepository.findById(id);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        userRepository.deleteById(id);
+        return ResponseEntity.ok().build();
     }
 }

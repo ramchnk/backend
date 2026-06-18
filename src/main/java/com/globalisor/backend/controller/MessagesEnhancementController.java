@@ -36,8 +36,31 @@ public class MessagesEnhancementController {
 
     @GetMapping("/groups")
     public ResponseEntity<List<GroupChat>> getGroups(@RequestParam String userId) {
-        List<GroupChat> groups = groupChatRepository.findByMemberIdsContaining(userId);
-        return ResponseEntity.ok(groups);
+        Optional<User> userOpt = userRepository.findById(userId);
+        String role = "CLIENT";
+        if (userOpt.isPresent()) {
+            role = userOpt.get().getRole();
+        }
+        final String finalRole = role;
+        
+        List<GroupChat> allGroups = groupChatRepository.findAll();
+        List<GroupChat> filtered = allGroups.stream().filter(g -> {
+            if ("ADMIN".equalsIgnoreCase(finalRole)) {
+                return true;
+            }
+            boolean isMember = g.getMemberIds() != null && g.getMemberIds().contains(userId);
+            if (isMember) {
+                return true;
+            }
+            String priv = g.getPrivacy() != null ? g.getPrivacy() : "Public";
+            if ("STAFF".equalsIgnoreCase(finalRole)) {
+                return "Public".equalsIgnoreCase(priv) || "Internal".equalsIgnoreCase(priv);
+            }
+            // Client/User
+            return "Public".equalsIgnoreCase(priv);
+        }).collect(Collectors.toList());
+        
+        return ResponseEntity.ok(filtered);
     }
 
     @PostMapping("/groups")
@@ -48,6 +71,23 @@ public class MessagesEnhancementController {
         if (group.getCreatedTime() == null) {
             group.setCreatedTime(System.currentTimeMillis());
         }
+        if (group.getPrivacy() == null) {
+            group.setPrivacy("Public");
+        }
+        if (group.getCreatedBy() != null) {
+            if (group.getMemberIds() == null) {
+                group.setMemberIds(new ArrayList<>());
+            }
+            if (!group.getMemberIds().contains(group.getCreatedBy())) {
+                group.getMemberIds().add(group.getCreatedBy());
+            }
+            if (group.getAdmins() == null) {
+                group.setAdmins(new ArrayList<>());
+            }
+            if (!group.getAdmins().contains(group.getCreatedBy())) {
+                group.getAdmins().add(group.getCreatedBy());
+            }
+        }
         GroupChat saved = groupChatRepository.save(group);
         
         // Notify members about new group creation
@@ -57,17 +97,44 @@ public class MessagesEnhancementController {
     }
 
     @PutMapping("/groups/{id}")
-    public ResponseEntity<GroupChat> renameGroup(@PathVariable String id, @RequestBody Map<String, String> body) {
+    public ResponseEntity<GroupChat> renameGroup(@PathVariable String id, @RequestBody Map<String, Object> body) {
         Optional<GroupChat> groupOpt = groupChatRepository.findById(id);
         if (groupOpt.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
         GroupChat group = groupOpt.get();
         if (body.containsKey("name")) {
-            group.setName(body.get("name"));
+            group.setName((String) body.get("name"));
         }
         if (body.containsKey("description")) {
-            group.setDescription(body.get("description"));
+            group.setDescription((String) body.get("description"));
+        }
+        if (body.containsKey("icon")) {
+            group.setIcon((String) body.get("icon"));
+        }
+        if (body.containsKey("privacy")) {
+            group.setPrivacy((String) body.get("privacy"));
+        }
+        if (body.containsKey("isArchived")) {
+            group.setIsArchived((Boolean) body.get("isArchived"));
+        }
+        if (body.containsKey("memberIds")) {
+            group.setMemberIds((List<String>) body.get("memberIds"));
+        }
+        if (body.containsKey("admins")) {
+            group.setAdmins((List<String>) body.get("admins"));
+        }
+        if (body.containsKey("pinnedMessages")) {
+            group.setPinnedMessages((List<String>) body.get("pinnedMessages"));
+        }
+        if (body.containsKey("announcements")) {
+            group.setAnnouncements((List<String>) body.get("announcements"));
+        }
+        if (body.containsKey("mutedBy")) {
+            group.setMutedBy((List<String>) body.get("mutedBy"));
+        }
+        if (body.containsKey("starredBy")) {
+            group.setStarredBy((List<String>) body.get("starredBy"));
         }
         GroupChat saved = groupChatRepository.save(group);
         
@@ -75,6 +142,21 @@ public class MessagesEnhancementController {
         broadcastGroupUpdate(saved);
         
         return ResponseEntity.ok(saved);
+    }
+
+    @DeleteMapping("/groups/{id}")
+    public ResponseEntity<Void> deleteGroup(@PathVariable String id) {
+        Optional<GroupChat> groupOpt = groupChatRepository.findById(id);
+        if (groupOpt.isPresent()) {
+            groupChatRepository.deleteById(id);
+            try {
+                Map<String, Object> event = new HashMap<>();
+                event.put("type", "group_deleted");
+                event.put("groupId", id);
+                chatWebSocketHandler.broadcastEvent(event);
+            } catch (Exception e) {}
+        }
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/groups/{id}/members")
@@ -108,6 +190,9 @@ public class MessagesEnhancementController {
         }
         GroupChat group = groupOpt.get();
         group.getMemberIds().remove(userId);
+        if (group.getAdmins() != null) {
+            group.getAdmins().remove(userId);
+        }
         GroupChat saved = groupChatRepository.save(group);
         
         // Notify members

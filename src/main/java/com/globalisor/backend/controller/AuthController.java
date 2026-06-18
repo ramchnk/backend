@@ -38,6 +38,9 @@ public class AuthController {
     @Autowired
     EncryptionUtils encryptionUtils;
 
+    @Autowired
+    private com.globalisor.backend.service.NotificationService notificationService;
+
     @PostMapping("/signin")
     public ResponseEntity<?> authenticateUser(@Valid @RequestBody LoginRequest loginRequest) {
         Authentication authentication = authenticationManager.authenticate(
@@ -78,6 +81,19 @@ public class AuthController {
                 encoder.encode(signUpRequest.getPassword()));
 
         userRepository.save(user);
+
+        try {
+            notificationService.sendNotification(
+                    "admin",
+                    "New Client Registered",
+                    user.getFirstName() + " " + user.getLastName() + " (" + signUpRequest.getEmail() + ") registered as a new client.",
+                    "registration",
+                    user.getId(),
+                    "Info"
+            );
+        } catch (Exception e) {
+            // ignore
+        }
 
         return ResponseEntity.ok(new MessageResponse("User registered successfully!"));
     }
