@@ -17,13 +17,19 @@ import java.util.HashMap;
 @RestController
 @RequestMapping("/api/requirements")
 public class RequirementController {
-
+ 
     @Autowired
     RequirementRepository requirementRepository;
+ 
+    @Autowired
+    private com.globalisor.backend.service.NotificationService notificationService;
 
     @GetMapping
     public ResponseEntity<?> getRequirement() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication.getPrincipal() instanceof UserDetailsImpl)) {
+            return ResponseEntity.status(401).body("Unauthorized");
+        }
         UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
         
         Optional<Requirement> req = requirementRepository.findByUserId(userDetails.getId());
@@ -45,10 +51,14 @@ public class RequirementController {
     @PostMapping
     public ResponseEntity<?> saveRequirement(@RequestBody Map<String, Object> data) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication.getPrincipal() instanceof UserDetailsImpl)) {
+            return ResponseEntity.status(401).body("Unauthorized");
+        }
         UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
         
         Optional<Requirement> reqOpt = requirementRepository.findByUserId(userDetails.getId());
         Requirement requirement;
+        boolean isNew = !reqOpt.isPresent();
         if (reqOpt.isPresent()) {
             requirement = reqOpt.get();
             requirement.setData(data);
@@ -57,6 +67,19 @@ public class RequirementController {
             requirement = new Requirement(userDetails.getId(), data);
         }
         requirementRepository.save(requirement);
+        
+        if (isNew) {
+            try {
+                notificationService.sendNotification(
+                        "admin",
+                        "New Application Created",
+                        userDetails.getFirstName() + " " + userDetails.getLastName() + " created a new application.",
+                        "application",
+                        requirement.getId(),
+                        "Info"
+                );
+            } catch (Exception e) {}
+        }
         
         Map<String, Object> response = new HashMap<>();
         response.put("status", requirement.getStatus());
@@ -68,6 +91,9 @@ public class RequirementController {
     @PostMapping("/submit")
     public ResponseEntity<?> submitRequirement() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication.getPrincipal() instanceof UserDetailsImpl)) {
+            return ResponseEntity.status(401).body("Unauthorized");
+        }
         UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
         
         Optional<Requirement> reqOpt = requirementRepository.findByUserId(userDetails.getId());
@@ -77,6 +103,27 @@ public class RequirementController {
             requirement.setUpdatedAt(new java.util.Date());
             requirementRepository.save(requirement);
             
+            try {
+                // Admin notification
+                notificationService.sendNotification(
+                        "admin",
+                        "New Pre-Registration Submission",
+                        userDetails.getFirstName() + " " + userDetails.getLastName() + " submitted pre-registration requirements.",
+                        "pre-registration",
+                        requirement.getId(),
+                        "Info"
+                );
+                // Client notification
+                notificationService.sendNotification(
+                        userDetails.getId(),
+                        "Application Submitted Successfully",
+                        "Your pre-registration requirements have been submitted successfully.",
+                        "pre-registration",
+                        requirement.getId(),
+                        "Info"
+                );
+            } catch (Exception e) {}
+
             Map<String, Object> response = new HashMap<>();
             response.put("status", requirement.getStatus());
             response.put("data", requirement.getData());

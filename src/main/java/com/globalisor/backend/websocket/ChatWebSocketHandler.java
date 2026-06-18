@@ -30,6 +30,9 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     // Map of userId to sessionIds (since a user can have multiple tabs/connections)
     private final ConcurrentHashMap<String, CopyOnWriteArrayList<String>> userSessions = new ConcurrentHashMap<>();
 
+    // Map of userId to presence status
+    private final ConcurrentHashMap<String, String> userPresenceStatus = new ConcurrentHashMap<>();
+
     @Autowired
     public ChatWebSocketHandler(UserRepository userRepository) {
         this.userRepository = userRepository;
@@ -39,6 +42,25 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     public boolean isUserOnline(String userId) {
         CopyOnWriteArrayList<String> active = userSessions.get(userId);
         return active != null && !active.isEmpty();
+    }
+
+    public String getUserStatus(String userId) {
+        return userPresenceStatus.getOrDefault(userId, "offline");
+    }
+
+    public void setUserStatus(String userId, String status) {
+        if (status == null) return;
+        userPresenceStatus.put(userId, status);
+        try {
+            Map<String, Object> event = new ConcurrentHashMap<>();
+            event.put("type", "presence");
+            event.put("userId", userId);
+            event.put("status", status);
+            String payload = objectMapper.writeValueAsString(event);
+            broadcastAll(payload);
+        } catch (Exception e) {
+            // ignore
+        }
     }
 
     @Override
@@ -57,6 +79,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                     session.getAttributes().put("role", role);
 
                     userSessions.computeIfAbsent(userId, k -> new CopyOnWriteArrayList<>()).add(session.getId());
+                    userPresenceStatus.put(userId, "online");
 
                     // Broadcast online status
                     broadcastPresence(userId, true, null);
@@ -76,6 +99,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 active.remove(session.getId());
                 if (active.isEmpty()) {
                     userSessions.remove(userId);
+                    userPresenceStatus.put(userId, "offline");
                     
                     // Mark last seen in DB
                     Long lastSeen = System.currentTimeMillis();
@@ -101,20 +125,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         String type = (String) data.get("type");
 
         if ("typing".equals(type)) {
-            // Broadcast typing event to target
-            String clientId = (String) data.get("clientId");
-            String senderId = (String) data.get("senderId");
-            String senderRole = (String) data.get("senderRole");
-            Boolean isTyping = (Boolean) data.get("isTyping");
-
-            // We broadcast typing to either the client (if sender is admin/staff) or admin/staff (if sender is client)
-            if ("client".equals(senderRole)) {
-                // Sender is client, broadcast to all active admin/staff
-                broadcastToRole(payload, "admin", "staff");
-            } else {
-                // Sender is admin/staff, broadcast to the client
-                broadcastToUser(clientId, payload);
-            }
+            // Broadcast typing event to all sessions so members of group channels see it
+            broadcastAll(payload);
         } else if ("call_signal".equals(type)) {
             String targetUserId = (String) data.get("targetUserId");
             if (targetUserId != null) {

@@ -19,6 +19,7 @@ public class Notification {
     private String message;
     private String type;
     private String relatedId;
+    private String priority = "Info"; // Info, Warning, Critical
     private Long timestamp = System.currentTimeMillis();
     private List<String> readBy = new ArrayList<>();
 }

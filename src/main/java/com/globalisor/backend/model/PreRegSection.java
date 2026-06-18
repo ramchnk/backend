@@ -24,6 +24,12 @@ public class PreRegSection {
     private List<Map<String, Object>> fields;
     private String applicableServices = "All";
 
+    // Checklist, FAQs, Attachments, and Documents
+    private List<String> checklists;
+    private List<Map<String, String>> faqs;
+    private List<Map<String, String>> attachments;
+    private List<String> documents;
+
     // Version History
     private String lastUpdatedBy = "Admin";
     private Date lastUpdatedAt = new Date();

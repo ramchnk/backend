@@ -28,6 +28,7 @@ public class Country {
     private Double priceAddress = 600.0;
     private Double priceTax = 1500.0;
     private Double priceBank = 500.0;
+    private Integer orderIndex = 0;
     private Map<String, Double> customPrices = new HashMap<>();
     private Map<String, Object> publishedData = new HashMap<>();
 }

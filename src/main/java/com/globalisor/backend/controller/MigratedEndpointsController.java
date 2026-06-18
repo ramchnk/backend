@@ -248,7 +248,7 @@ public class MigratedEndpointsController {
 
             Optional<User> userOpt = userRepository.findById(k.getClientId());
             if (userOpt.isPresent()) {
-                map.put("clientName", userOpt.get().getFirstName() + " " + userOpt.get().getLastName());
+                map.put("clientName", formatUserName(userOpt.get()));
             } else {
                 map.put("clientName", "Unknown");
             }
@@ -288,7 +288,7 @@ public class MigratedEndpointsController {
 
             Optional<User> userOpt = userRepository.findById(c.getClientId());
             if (userOpt.isPresent()) {
-                map.put("clientName", userOpt.get().getFirstName() + " " + userOpt.get().getLastName());
+                map.put("clientName", formatUserName(userOpt.get()));
             } else {
                 map.put("clientName", "Unknown");
             }
@@ -330,7 +330,7 @@ public class MigratedEndpointsController {
             String clientName = d.getClientName();
             if (clientName == null || clientName.isEmpty()) {
                 if (userOpt.isPresent()) {
-                    clientName = userOpt.get().getFirstName() + " " + userOpt.get().getLastName();
+                    clientName = formatUserName(userOpt.get());
                 } else {
                     clientName = "Unknown";
                 }
@@ -417,7 +417,7 @@ public class MigratedEndpointsController {
         }
         if (doc.getClientName() == null && doc.getClientId() != null) {
             Optional<User> userOpt = userRepository.findById(doc.getClientId());
-            userOpt.ifPresent(u -> doc.setClientName(u.getFirstName() + " " + u.getLastName()));
+            userOpt.ifPresent(u -> doc.setClientName(formatUserName(u)));
         }
         if (doc.getCompanyName() == null && doc.getClientId() != null) {
             List<Requirement> reqs = requirementRepository.findAll();
@@ -530,6 +530,19 @@ public class MigratedEndpointsController {
     public ResponseEntity<List<Notification>> getNotifications(
             @RequestParam(required = false) String clientId,
             @RequestParam(required = false) String userId) {
+        // Cleanup notifications older than 30 days (30L * 24 * 60 * 60 * 1000 = 2592000000L)
+        try {
+            long cutoff = System.currentTimeMillis() - 2592000000L;
+            List<Notification> allNotifs = notificationRepository.findAll();
+            for (Notification n : allNotifs) {
+                if (n.getTimestamp() != null && n.getTimestamp() < cutoff) {
+                    notificationRepository.delete(n);
+                }
+            }
+        } catch (Exception e) {
+            // ignore
+        }
+
         String targetId = clientId != null && !clientId.isEmpty() ? clientId : userId;
         List<Notification> list;
         if (targetId != null && !targetId.isEmpty()) {
@@ -548,7 +561,7 @@ public class MigratedEndpointsController {
             list = notificationRepository.findAll();
         }
         // Sort by timestamp descending
-        list.sort((a, b) -> Long.compare(b.getTimestamp(), a.getTimestamp()));
+        list.sort((a, b) -> Long.compare(b.getTimestamp() != null ? b.getTimestamp() : 0L, a.getTimestamp() != null ? a.getTimestamp() : 0L));
         return ResponseEntity.ok(list);
     }
 
@@ -699,7 +712,7 @@ public class MigratedEndpointsController {
             if (!userOpt.isPresent() || (!"CLIENT".equalsIgnoreCase(userOpt.get().getRole()) && !"USER".equalsIgnoreCase(userOpt.get().getRole()))) {
                 continue;
             }
-            String clientName = userOpt.map(u -> u.getFirstName() + " " + u.getLastName()).orElse("Unknown");
+            String clientName = userOpt.map(this::formatUserName).orElse("Unknown");
             conv.put("clientName", clientName);
             conv.put("lastMessage", latestMsg.getText());
             conv.put("lastMessageTime", latestMsg.getTimestamp());
@@ -728,28 +741,39 @@ public class MigratedEndpointsController {
     }
 
     @PostMapping("/messages/read-all")
-    public ResponseEntity<?> readAllMessages(@RequestParam String clientId, @RequestParam String senderRole) {
+    public ResponseEntity<?> readAllMessages(
+            @RequestParam String clientId,
+            @RequestParam(required = false) String senderRole,
+            @RequestParam(required = false) String userId) {
         List<Message> messages = messageRepository.findByClientId(clientId);
         boolean changed = false;
         for (Message m : messages) {
-            if ("client".equals(senderRole)) {
-                // Client is reading support desk's messages
-                if (("admin".equals(m.getSenderRole()) || "staff".equals(m.getSenderRole())) && (m.getIsRead() == null || !m.getIsRead())) {
+            if (userId != null && !userId.isEmpty()) {
+                if (!userId.equals(m.getSenderId()) && (m.getIsRead() == null || !m.getIsRead())) {
                     m.setIsRead(true);
                     messageRepository.save(m);
                     changed = true;
                 }
-            } else {
-                // Admin/Staff is reading client's messages
-                if ("client".equals(m.getSenderRole()) && (m.getIsRead() == null || !m.getIsRead())) {
-                    m.setIsRead(true);
-                    messageRepository.save(m);
-                    changed = true;
+            } else if (senderRole != null && !senderRole.isEmpty()) {
+                if ("client".equals(senderRole)) {
+                    // Client is reading support desk's messages
+                    if (("admin".equals(m.getSenderRole()) || "staff".equals(m.getSenderRole())) && (m.getIsRead() == null || !m.getIsRead())) {
+                        m.setIsRead(true);
+                        messageRepository.save(m);
+                        changed = true;
+                    }
+                } else {
+                    // Admin/Staff is reading client's messages
+                    if ("client".equals(m.getSenderRole()) && (m.getIsRead() == null || !m.getIsRead())) {
+                        m.setIsRead(true);
+                        messageRepository.save(m);
+                        changed = true;
+                    }
                 }
             }
         }
         if (changed) {
-            chatWebSocketHandler.broadcastReadReceipt(clientId, senderRole);
+            chatWebSocketHandler.broadcastReadReceipt(clientId, senderRole != null ? senderRole : "staff");
         }
         return ResponseEntity.ok().build();
     }
@@ -764,19 +788,23 @@ public class MigratedEndpointsController {
 
         if (userId != null && !userId.isEmpty()) {
             boolean online = chatWebSocketHandler.isUserOnline(userId);
-            res.put("isOnline", online);
+            String status = chatWebSocketHandler.getUserStatus(userId);
+            res.put("isOnline", online && !"offline".equals(status));
+            res.put("status", status);
             Optional<User> uOpt = userRepository.findById(userId);
             uOpt.ifPresent(user -> res.put("lastSeen", user.getLastSeenTime()));
             res.put("userId", userId);
         } else if (name != null && !name.isEmpty()) {
             List<User> users = userRepository.findAll();
             Optional<User> targetUser = users.stream()
-                    .filter(u -> (u.getFirstName() + " " + u.getLastName()).equalsIgnoreCase(name))
+                    .filter(u -> formatUserName(u).equalsIgnoreCase(name))
                     .findFirst();
             if (targetUser.isPresent()) {
                 User u = targetUser.get();
                 boolean online = chatWebSocketHandler.isUserOnline(u.getId());
-                res.put("isOnline", online);
+                String status = chatWebSocketHandler.getUserStatus(u.getId());
+                res.put("isOnline", online && !"offline".equals(status));
+                res.put("status", status);
                 res.put("lastSeen", u.getLastSeenTime());
                 res.put("userId", u.getId());
             } else {
@@ -809,6 +837,23 @@ public class MigratedEndpointsController {
         return ResponseEntity.ok(res);
     }
 
+    @PostMapping("/messages/presence")
+    public ResponseEntity<Map<String, Object>> updatePresence(@RequestBody Map<String, String> body) {
+        String userId = body.get("userId");
+        String status = body.get("status");
+        Map<String, Object> res = new HashMap<>();
+        if (userId != null && status != null) {
+            chatWebSocketHandler.setUserStatus(userId, status);
+            res.put("success", true);
+            res.put("userId", userId);
+            res.put("status", status);
+            return ResponseEntity.ok(res);
+        } else {
+            res.put("error", "userId and status are required");
+            return ResponseEntity.badRequest().body(res);
+        }
+    }
+
     // --- APPLICATION ENDPOINTS ---
     @GetMapping("/applications")
     public ResponseEntity<List<Map<String, Object>>> getAllApplications() {
@@ -837,7 +882,7 @@ public class MigratedEndpointsController {
 
             // Find client
             Optional<User> userOpt = users.stream().filter(u -> u.getId().equals(req.getUserId())).findFirst();
-            map.put("client", userOpt.map(u -> u.getFirstName() + " " + u.getLastName()).orElse("Unknown"));
+            map.put("client", userOpt.map(this::formatUserName).orElse("Unknown"));
             map.put("clientId", req.getUserId());
 
             map.put("staff", "Sarah Lim");
@@ -920,19 +965,20 @@ public class MigratedEndpointsController {
         // If empty in DB, initialize with default countries
         if (countries.isEmpty()) {
             List<Country> defaultCountries = Arrays.asList(
-                createDefaultCountry("Singapore", "SG", "9-character alphanumeric", "17% (flat rate)", "99.5%", true, Arrays.asList("Company Incorporation", "Corporate Secretary", "Nominee Director", "Office Address", "Tax & Compliance"), 1315.0, 900.0, 3000.0, 600.0, 1500.0, 500.0),
-                createDefaultCountry("Hong Kong", "HK", "8-digit registration no.", "16.5% (two-tier)", "98.8%", true, Arrays.asList("Company Incorporation", "Corporate Secretary", "Office Address", "Tax & Compliance"), 1650.0, 800.0, 2500.0, 500.0, 1200.0, 400.0),
-                createDefaultCountry("United States", "USA", "9-digit EIN number", "21% (federal flat)", "97.2%", true, Arrays.asList("Company Incorporation", "Corporate Secretary", "Nominee Director", "Office Address", "Tax & Compliance"), 1200.0, 1000.0, 3000.0, 700.0, 1500.0, 500.0),
-                createDefaultCountry("Dubai", "UAE", "Varies by Free Zone", "9% (above 375k AED)", "99.1%", true, Arrays.asList("Company Incorporation", "Corporate Secretary", "Nominee Director", "Office Address", "Tax & Compliance"), 2500.0, 1200.0, 4000.0, 900.0, 1800.0, 600.0),
-                createDefaultCountry("Australia", "AUS", "9-digit ACN number", "25% - 30%", "96.8%", true, Arrays.asList("Company Incorporation", "Corporate Secretary", "Nominee Director", "Office Address", "Tax & Compliance"), 1400.0, 950.0, 3100.0, 650.0, 1600.0, 550.0),
-                createDefaultCountry("United Kingdom", "UK", "8-digit CRN number", "19% - 25%", "98.5%", true, Arrays.asList("Company Incorporation", "Corporate Secretary", "Nominee Director", "Office Address", "Tax & Compliance"), 1300.0, 850.0, 2800.0, 550.0, 1400.0, 450.0)
+                createDefaultCountry("Singapore", "SG", "9-character alphanumeric", "17% (flat rate)", "99.5%", true, Arrays.asList("Company Incorporation", "Corporate Secretary", "Nominee Director", "Office Address", "Tax & Compliance"), 1315.0, 900.0, 3000.0, 600.0, 1500.0, 500.0, 0),
+                createDefaultCountry("Hong Kong", "HK", "8-digit registration no.", "16.5% (two-tier)", "98.8%", true, Arrays.asList("Company Incorporation", "Corporate Secretary", "Office Address", "Tax & Compliance"), 1650.0, 800.0, 2500.0, 500.0, 1200.0, 400.0, 1),
+                createDefaultCountry("United States", "USA", "9-digit EIN number", "21% (federal flat)", "97.2%", true, Arrays.asList("Company Incorporation", "Corporate Secretary", "Nominee Director", "Office Address", "Tax & Compliance"), 1200.0, 1000.0, 3000.0, 700.0, 1500.0, 500.0, 2),
+                createDefaultCountry("Dubai", "UAE", "Varies by Free Zone", "9% (above 375k AED)", "99.1%", true, Arrays.asList("Company Incorporation", "Corporate Secretary", "Nominee Director", "Office Address", "Tax & Compliance"), 2500.0, 1200.0, 4000.0, 900.0, 1800.0, 600.0, 3),
+                createDefaultCountry("Australia", "AUS", "9-digit ACN number", "25% - 30%", "96.8%", true, Arrays.asList("Company Incorporation", "Corporate Secretary", "Nominee Director", "Office Address", "Tax & Compliance"), 1400.0, 950.0, 3100.0, 650.0, 1600.0, 550.0, 4),
+                createDefaultCountry("United Kingdom", "UK", "8-digit CRN number", "19% - 25%", "98.5%", true, Arrays.asList("Company Incorporation", "Corporate Secretary", "Nominee Director", "Office Address", "Tax & Compliance"), 1300.0, 850.0, 2800.0, 550.0, 1400.0, 450.0, 5)
             );
             countries = countryRepository.saveAll(defaultCountries);
         }
+        countries.sort(Comparator.comparing(c -> c.getOrderIndex() != null ? c.getOrderIndex() : 0));
         return ResponseEntity.ok(countries);
     }
 
-    private Country createDefaultCountry(String name, String code, String uen, String tax, String compliance, boolean published, List<String> services, Double basePrice, Double priceSecretary, Double priceDirector, Double priceAddress, Double priceTax, Double priceBank) {
+    private Country createDefaultCountry(String name, String code, String uen, String tax, String compliance, boolean published, List<String> services, Double basePrice, Double priceSecretary, Double priceDirector, Double priceAddress, Double priceTax, Double priceBank, int orderIndex) {
         Country c = new Country();
         c.setId("CNTRY-" + name.toLowerCase().replace(" ", "-"));
         c.setName(name);
@@ -949,6 +995,7 @@ public class MigratedEndpointsController {
         c.setPriceAddress(priceAddress);
         c.setPriceTax(priceTax);
         c.setPriceBank(priceBank);
+        c.setOrderIndex(orderIndex);
 
         Map<String, Object> pubData = new HashMap<>();
         pubData.put("name", name);
@@ -973,6 +1020,10 @@ public class MigratedEndpointsController {
     public ResponseEntity<Country> createCountry(@RequestBody Country country) {
         if (country.getId() == null) {
             country.setId("CNTRY-" + System.currentTimeMillis());
+        }
+        if (country.getOrderIndex() == null) {
+            long count = countryRepository.count();
+            country.setOrderIndex((int) count);
         }
         Country saved = countryRepository.save(country);
         return ResponseEntity.status(HttpStatus.CREATED).body(saved);
@@ -999,6 +1050,7 @@ public class MigratedEndpointsController {
         if (countryUpdates.getPriceAddress() != null) country.setPriceAddress(countryUpdates.getPriceAddress());
         if (countryUpdates.getPriceTax() != null) country.setPriceTax(countryUpdates.getPriceTax());
         if (countryUpdates.getPriceBank() != null) country.setPriceBank(countryUpdates.getPriceBank());
+        if (countryUpdates.getOrderIndex() != null) country.setOrderIndex(countryUpdates.getOrderIndex());
         if (countryUpdates.getCustomPrices() != null) country.setCustomPrices(countryUpdates.getCustomPrices());
         if (countryUpdates.getPublishedData() != null) country.setPublishedData(countryUpdates.getPublishedData());
 
@@ -1006,10 +1058,56 @@ public class MigratedEndpointsController {
         return ResponseEntity.ok(saved);
     }
 
+    @PutMapping("/countries/reorder")
+    public ResponseEntity<List<Country>> reorderCountries(@RequestBody Map<String, List<String>> payload) {
+        List<String> orderedIds = payload.get("orderedIds");
+        if (orderedIds != null) {
+            for (int i = 0; i < orderedIds.size(); i++) {
+                String id = orderedIds.get(i);
+                Optional<Country> countryOpt = countryRepository.findById(id);
+                if (countryOpt.isPresent()) {
+                    Country country = countryOpt.get();
+                    country.setOrderIndex(i);
+                    countryRepository.save(country);
+                }
+            }
+        }
+        List<Country> countries = countryRepository.findAll();
+        countries.sort(Comparator.comparing(c -> c.getOrderIndex() != null ? c.getOrderIndex() : 0));
+        return ResponseEntity.ok(countries);
+    }
+
     @DeleteMapping("/countries/{id}")
     public ResponseEntity<Void> deleteCountry(@PathVariable String id) {
         countryRepository.deleteById(id);
         return ResponseEntity.noContent().build();
+    }
+
+    private String formatUserName(User u) {
+        if (u == null) return "Unknown";
+        String first = u.getFirstName();
+        String last = u.getLastName();
+        StringBuilder sb = new StringBuilder();
+        if (first != null && !first.trim().isEmpty()) {
+            sb.append(first.trim());
+        }
+        if (last != null && !last.trim().isEmpty()) {
+            if (sb.length() > 0) sb.append(" ");
+            sb.append(last.trim());
+        }
+        String fullName = sb.toString().trim();
+        if (!fullName.isEmpty()) {
+            return fullName;
+        }
+        if (u.getEmail() != null && !u.getEmail().trim().isEmpty()) {
+            String email = u.getEmail().trim();
+            int atIndex = email.indexOf('@');
+            if (atIndex > 0) {
+                return email.substring(0, atIndex);
+            }
+            return email;
+        }
+        return "Unknown";
     }
 
     private String capitalize(String str) {

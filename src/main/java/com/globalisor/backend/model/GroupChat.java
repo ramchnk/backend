@@ -18,5 +18,15 @@ public class GroupChat {
     private String description;
     private List<String> memberIds = new ArrayList<>();
     private String createdBy;
+    private String icon = "💬";
     private Long createdTime = System.currentTimeMillis();
+    
+    private String privacy = "Public";
+    private List<String> admins = new ArrayList<>();
+    private List<String> pinnedMessages = new ArrayList<>();
+    private List<String> announcements = new ArrayList<>();
+    private Boolean isArchived = false;
+    private List<String> mutedBy = new ArrayList<>();
+    private List<String> starredBy = new ArrayList<>();
 }
+
