@@ -20,48 +20,9 @@ public class PreRegSectionController {
     PreRegSectionRepository preRegSectionRepository;
 
     private void seedDefaultSections() {
-        List<PreRegSection> existing = preRegSectionRepository.findAll();
-        
-        // Force a re-seed if the default sections lack our newly added dynamic fields
-        if (existing.size() == 6 && preRegSectionRepository.existsById("sec-names")) {
-            PreRegSection secAddons = preRegSectionRepository.findById("sec-addons").orElse(null);
-            if (secAddons == null || secAddons.getFields() == null || secAddons.getFields().isEmpty()) {
-                preRegSectionRepository.deleteAll();
-                existing = new ArrayList<>();
-            }
-        }
-
-        if (existing.size() == 6 && preRegSectionRepository.existsById("sec-names")) {
-            PreRegSection secNames = preRegSectionRepository.findById("sec-names").orElse(null);
-            if (secNames != null && ("Company Name".equals(secNames.getTitle()) || secNames.getFields().stream().anyMatch(f -> "activities.primary".equals(f.get("key"))))) {
-                List<Map<String, Object>> migratedFields = List.of(
-                    createField("names[0]", "Proposed Name Option 1", "text", true, "Primary preferred name", null),
-                    createField("names[1]", "Proposed Name Option 2", "text", true, "Backup name if Option 1 is unavailable", null),
-                    createField("names[2]", "Proposed Name Option 3", "text", false, "Alternative name or enter NA", null),
-                    createField("activities", "Business Activities", "ssic", true, "Search by SSIC code or activity name", null),
-                    createField("names[3]", "Proposed Name Option 4", "text", false, "", null)
-                );
-                secNames.setTitle("SSIC & Industry Name");
-                secNames.setFields(migratedFields);
-                secNames.setStatus("PUBLISHED");
-                
-                Map<String, Object> snapshot = new HashMap<>();
-                snapshot.put("id", secNames.getId());
-                snapshot.put("key", secNames.getKey());
-                snapshot.put("title", "SSIC & Industry Name");
-                snapshot.put("description", secNames.getDescription());
-                snapshot.put("type", secNames.getType());
-                snapshot.put("sortOrder", secNames.getSortOrder());
-                snapshot.put("fields", migratedFields);
-                snapshot.put("applicableServices", secNames.getApplicableServices());
-                secNames.setPublishedData(snapshot);
-                
-                preRegSectionRepository.save(secNames);
-            }
+        if (preRegSectionRepository.count() > 0) {
             return;
         }
-
-        preRegSectionRepository.deleteAll();
 
         List<PreRegSection> defaults = new ArrayList<>();
 
@@ -227,6 +188,8 @@ public class PreRegSectionController {
         if (sectionOpt.isEmpty()) return ResponseEntity.notFound().build();
 
         PreRegSection section = sectionOpt.get();
+        boolean wasPublished = "PUBLISHED".equals(section.getStatus());
+
         section.setTitle(sectionUpdates.getTitle());
         section.setDescription(sectionUpdates.getDescription());
         section.setType(sectionUpdates.getType());
@@ -242,20 +205,31 @@ public class PreRegSectionController {
             section.setKey(sectionUpdates.getKey());
         }
 
-        // If it was PUBLISHED, check if changes differ to set hasUnpublishedChanges or just set status to DRAFT/Modified
-        // The requirements say: "Display status badges: Draft, Published, Unpublished"
-        // Let's set the status to "DRAFT" when there are modifications after publishing.
-        // Wait, "Unpublished content should be hidden from clients. Published should appear. Republish should instantly update."
-        // So keeping status as "DRAFT" (or we can keep it as "PUBLISHED" with unpublished changes but let's change status to "DRAFT" so it gets a DRAFT badge, but its publishedData is STILL live in the client wizard until they click "Publish" again!).
-        // This is a brilliant strategy: the client page uses `publishedData`. The editor page shows the draft config. The badge shows "Draft" (or "Draft/Unpublished Changes" if publishedData is not null).
-        // Let's implement this! If status was PUBLISHED, but it got updated, we keep the status as "PUBLISHED" but we can flag that it has draft changes, or change status to "DRAFT" but leave `publishedData` intact!
-        // The badge will show "Draft" if it has never been published (publishedData is null) or "Unpublished Changes" (or just "Draft") if it has publishedData but status is DRAFT.
-        // Let's check status badge requirement: "Display status badges: Draft, Published, Unpublished".
-        // If status becomes DRAFT, then status badge is "Draft". That is clean and perfectly satisfies the requirement!
-        section.setStatus("DRAFT"); 
-
         section.setLastUpdatedBy(getLoggedInAdminName());
         section.setLastUpdatedAt(new Date());
+
+        // If was PUBLISHED: keep it published and immediately update the publishedData snapshot
+        // so clients see the new title/description/fields right away without a separate Publish step.
+        if (wasPublished) {
+            section.setStatus("PUBLISHED");
+            Map<String, Object> snapshot = new HashMap<>();
+            snapshot.put("id", section.getId());
+            snapshot.put("key", section.getKey());
+            snapshot.put("title", section.getTitle());
+            snapshot.put("description", section.getDescription());
+            snapshot.put("type", section.getType());
+            snapshot.put("sortOrder", section.getSortOrder());
+            snapshot.put("fields", section.getFields());
+            snapshot.put("applicableServices", section.getApplicableServices());
+            snapshot.put("checklists", section.getChecklists());
+            snapshot.put("faqs", section.getFaqs());
+            snapshot.put("attachments", section.getAttachments());
+            snapshot.put("documents", section.getDocuments());
+            section.setPublishedData(snapshot);
+        } else {
+            // Was DRAFT or UNPUBLISHED — keep as DRAFT
+            section.setStatus("DRAFT");
+        }
 
         PreRegSection saved = preRegSectionRepository.save(section);
         return ResponseEntity.ok(saved);
@@ -265,11 +239,6 @@ public class PreRegSectionController {
     public ResponseEntity<?> deleteSection(@PathVariable String id) {
         Optional<PreRegSection> sectionOpt = preRegSectionRepository.findById(id);
         if (sectionOpt.isEmpty()) return ResponseEntity.notFound().build();
-
-        PreRegSection section = sectionOpt.get();
-        if (section.getId().startsWith("sec-")) {
-            return ResponseEntity.badRequest().body("Default system sections cannot be deleted");
-        }
 
         preRegSectionRepository.deleteById(id);
         return ResponseEntity.ok().build();
