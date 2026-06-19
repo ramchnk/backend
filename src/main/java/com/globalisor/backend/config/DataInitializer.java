@@ -43,6 +43,9 @@ public class DataInitializer implements CommandLineRunner {
     CatalogItemRepository catalogItemRepository;
 
     @Autowired
+    SsicActivityRepository ssicActivityRepository;
+
+    @Autowired
     PasswordEncoder encoder;
 
     @Override
@@ -181,6 +184,15 @@ public class DataInitializer implements CommandLineRunner {
         if (catalogItemRepository.count() == 0) {
             saveCatalogItem("CAT-1", "Nominee Director", "SGD 3,000/yr", "Qualified local resident director to meet ACRA requirements.", "Corporate Secretarial");
             saveCatalogItem("CAT-2", "Registered Address", "SGD 300/yr", "Premium CBD business address for mail handling.", "Administrative");
+        }
+
+        // 10. Seed SSIC Activities
+        if (ssicActivityRepository.count() == 0) {
+            ssicActivityRepository.save(new SsicActivity("ssic-62011", "62011", "Development of software for interactive digital media", "Information and Communications", "Development of mobile apps, games, e-commerce platforms and interactive digital products.", "PUBLISHED"));
+            ssicActivityRepository.save(new SsicActivity("ssic-62021", "62021", "Information technology consultancy", "Information and Communications", "Consultancy services for computer systems, network designs, and IT systems integration.", "PUBLISHED"));
+            ssicActivityRepository.save(new SsicActivity("ssic-46900", "46900", "General wholesale trade (including general importers and exporters)", "Wholesale Trade", "Import, export, and wholesale of a wide variety of goods without a dominant product line.", "PUBLISHED"));
+            ssicActivityRepository.save(new SsicActivity("ssic-70201", "70201", "Management consultancy services", "Professional, Scientific and Technical Activities", "Providing advisory and operational assistance to businesses on management, strategy, and logistics.", "PUBLISHED"));
+            ssicActivityRepository.save(new SsicActivity("ssic-64201", "64201", "Holding companies", "Financial and Insurance Activities", "Investment holding companies that hold shares in subsidiary companies.", "PUBLISHED"));
         }
     }
 
