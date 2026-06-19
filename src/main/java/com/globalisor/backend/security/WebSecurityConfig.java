@@ -88,6 +88,7 @@ public class WebSecurityConfig {
                         .requestMatchers("/api/reports/**").permitAll()
                         .requestMatchers("/api/catalog/**").permitAll()
                         .requestMatchers("/api/prereg-sections", "/api/prereg-sections/**").permitAll()
+                        .requestMatchers("/api/ssic-activities", "/api/ssic-activities/**").permitAll()
                         .requestMatchers("/api/requirements/**").permitAll()
                         .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated()

@@ -20,31 +20,90 @@ public class PreRegSectionController {
     PreRegSectionRepository preRegSectionRepository;
 
     private void seedDefaultSections() {
-        if (preRegSectionRepository.existsById("sec-names") && preRegSectionRepository.count() == 6) return;
+        List<PreRegSection> existing = preRegSectionRepository.findAll();
+        
+        // Force a re-seed if the default sections lack our newly added dynamic fields
+        if (existing.size() == 6 && preRegSectionRepository.existsById("sec-names")) {
+            PreRegSection secAddons = preRegSectionRepository.findById("sec-addons").orElse(null);
+            if (secAddons == null || secAddons.getFields() == null || secAddons.getFields().isEmpty()) {
+                preRegSectionRepository.deleteAll();
+                existing = new ArrayList<>();
+            }
+        }
+
+        if (existing.size() == 6 && preRegSectionRepository.existsById("sec-names")) {
+            PreRegSection secNames = preRegSectionRepository.findById("sec-names").orElse(null);
+            if (secNames != null && ("Company Name".equals(secNames.getTitle()) || secNames.getFields().stream().anyMatch(f -> "activities.primary".equals(f.get("key"))))) {
+                List<Map<String, Object>> migratedFields = List.of(
+                    createField("names[0]", "Proposed Name Option 1", "text", true, "Primary preferred name", null),
+                    createField("names[1]", "Proposed Name Option 2", "text", true, "Backup name if Option 1 is unavailable", null),
+                    createField("names[2]", "Proposed Name Option 3", "text", false, "Alternative name or enter NA", null),
+                    createField("activities", "Business Activities", "ssic", true, "Search by SSIC code or activity name", null),
+                    createField("names[3]", "Proposed Name Option 4", "text", false, "", null)
+                );
+                secNames.setTitle("SSIC & Industry Name");
+                secNames.setFields(migratedFields);
+                secNames.setStatus("PUBLISHED");
+                
+                Map<String, Object> snapshot = new HashMap<>();
+                snapshot.put("id", secNames.getId());
+                snapshot.put("key", secNames.getKey());
+                snapshot.put("title", "SSIC & Industry Name");
+                snapshot.put("description", secNames.getDescription());
+                snapshot.put("type", secNames.getType());
+                snapshot.put("sortOrder", secNames.getSortOrder());
+                snapshot.put("fields", migratedFields);
+                snapshot.put("applicableServices", secNames.getApplicableServices());
+                secNames.setPublishedData(snapshot);
+                
+                preRegSectionRepository.save(secNames);
+            }
+            return;
+        }
 
         preRegSectionRepository.deleteAll();
 
         List<PreRegSection> defaults = new ArrayList<>();
 
-        // 1. Company Name
+        // 1. SSIC & Industry Name
         List<Map<String, Object>> nameFields = List.of(
             createField("names[0]", "Proposed Name Option 1", "text", true, "Primary preferred name", null),
             createField("names[1]", "Proposed Name Option 2", "text", true, "Backup name if Option 1 is unavailable", null),
             createField("names[2]", "Proposed Name Option 3", "text", false, "Alternative name or enter NA", null),
-            createField("activities.primary", "Primary Business Activity", "text", true, "E.g. Software Development", null),
-            createField("activities.secondary", "Secondary Business Activity", "text", false, "E.g. IT Consulting", null),
+            createField("activities", "Business Activities", "ssic", true, "Search by SSIC code or activity name", null),
             createField("names[3]", "Proposed Name Option 4", "text", false, "", null)
         );
-        defaults.add(new PreRegSection("sec-names", "names", "Company Name", "Proposed names and activities for ACRA verification", "form", 1, nameFields));
+        defaults.add(new PreRegSection("sec-names", "names", "SSIC & Industry Name", "Proposed names and activities for ACRA verification", "form", 1, nameFields));
 
         // 2. Directors & Shareholders
-        defaults.add(new PreRegSection("sec-directors-shareholders", "directors-shareholders", "Directors & Shareholders", "Details of company directors and shareholders", "form", 2, new ArrayList<>()));
+        List<Map<String, Object>> directorFields = List.of(
+            createFieldWithHint("office.useService", "Registered office address", "switch", false, "$480 per year", null, "Statutorily required. Real address in Singapore, mail scanned weekly."),
+            createFieldWithHint("secretary.required", "Corporate secretary", "switch", false, "$720 per year", null, "Required within 6 months. Handles annual filings and board minutes.")
+        );
+        defaults.add(new PreRegSection("sec-directors-shareholders", "directors-shareholders", "Directors & Shareholders", "Details of company directors and shareholders", "form", 2, directorFields));
 
         // 3. Add-on Services
-        defaults.add(new PreRegSection("sec-addons", "addons", "Add-on Services", "Select additional corporate and compliance services", "form", 3, new ArrayList<>()));
+        List<Map<String, Object>> addonFields = List.of(
+            createFieldWithHint("addons.bankIntro", "Bank account introduction", "switch", false, "$350 one-time", null, "Warm intros to DBS, OCBC, HSBC, Aspire, Wio, Mashreq. We prepare KYC and stay on the call."),
+            createFieldWithHint("addons.statCompliance", "Statutory & compliance package", "switch", false, "$480 per year", null, "Annual filings, AGM resolutions, statutory registers maintained, ESOP support when needed."),
+            createFieldWithHint("addons.accounting", "Accounting & bookkeeping", "switch", false, "$220 per month", null, "Monthly bookkeeping in Xero, financial statements compiled to standards, payroll with CPF processing."),
+            createFieldWithHint("addons.taxCompliance", "Tax compliance package", "switch", false, "$720 per year", null, "Compilation of corporate tax returns (Form C-S), filing of ECI, GST advisory and filings."),
+            createFieldWithHint("addons.crossBorderTax", "Cross-Border Tax Structuring", "switch", false, "$4,500 one-time", null, "Advisory on IP holding, transfer pricing policy documentation, setup of offshore corporate wrappers."),
+            createFieldWithHint("addons.apostille", "Apostille + Notarisation", "switch", false, "$280 one-time", null, "Legalisation of incorporation files for use in foreign countries. Includes courier fees.")
+        );
+        defaults.add(new PreRegSection("sec-addons", "addons", "Add-on Services", "Select additional corporate and compliance services", "form", 3, addonFields));
 
         // 4. Registered Office
-        defaults.add(new PreRegSection("sec-office", "office", "Registered Office", "Singapore registered office details", "form", 4, new ArrayList<>()));
+        List<Map<String, Object>> officeFields = new ArrayList<>();
+        officeFields.add(createField("office.useService", "Registered Address Option", "select", true, "", List.of("true:Globalisor Premium CBD Address ($480/yr)", "false:Use my own local address")));
+        
+        Map<String, Object> addrField = createFieldWithHint("office.address", "Office Address", "textarea", true, "Enter your own address if not using Globalisor service", null, "Please enter full address details.");
+        addrField.put("condKey", "office.useService");
+        addrField.put("condOperator", "equals");
+        addrField.put("condValue", "false");
+        officeFields.add(addrField);
+        
+        defaults.add(new PreRegSection("sec-office", "office", "Registered Office", "Singapore registered office details", "form", 4, officeFields));
 
         // 5. Your package is up Next
         List<Map<String, Object>> contactFields = List.of(
@@ -69,6 +128,18 @@ public class PreRegSectionController {
         f.put("required", required);
         if (placeholder != null) f.put("placeholder", placeholder);
         if (options != null) f.put("options", options);
+        return f;
+    }
+
+    private Map<String, Object> createFieldWithHint(String key, String label, String type, boolean required, String placeholder, List<String> options, String hint) {
+        Map<String, Object> f = new HashMap<>();
+        f.put("key", key);
+        f.put("label", label);
+        f.put("type", type);
+        f.put("required", required);
+        if (placeholder != null) f.put("placeholder", placeholder);
+        if (options != null) f.put("options", options);
+        if (hint != null) f.put("hint", hint);
         return f;
     }
 
