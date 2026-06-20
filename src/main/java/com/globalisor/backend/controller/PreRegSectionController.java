@@ -20,6 +20,54 @@ public class PreRegSectionController {
     PreRegSectionRepository preRegSectionRepository;
 
     private void seedDefaultSections() {
+        // Special case: if office exists but is using the old textarea format, update it.
+        Optional<PreRegSection> officeOpt = preRegSectionRepository.findById("sec-office");
+        if (officeOpt.isPresent()) {
+            PreRegSection officeSec = officeOpt.get();
+            boolean hasPostalCode = false;
+            if (officeSec.getFields() != null) {
+                for (Map<String, Object> f : officeSec.getFields()) {
+                    if ("office.postalCode".equals(f.get("key"))) {
+                        hasPostalCode = true;
+                        break;
+                    }
+                }
+            }
+            if (!hasPostalCode) {
+                List<Map<String, Object>> officeFields = new ArrayList<>();
+                officeFields.add(createFieldWithHint("office.useService", "Registered Address Option *", "select", true, "$480 per year", List.of("false:Yes, I have Office Address", "true:No, I Need Globalisor Registered Address"), "Statutorily required. Real address in Singapore, mail scanned weekly."));
+                officeFields.add(createField("office.postalCode", "Postal Code", "text", true, "e.g. 079903", null));
+                officeFields.add(createField("office.block", "Block Number", "text", true, "e.g. 10", null));
+                officeFields.add(createField("office.streetName", "Street Name", "text", true, "e.g. Anson Road", null));
+                officeFields.add(createField("office.floor", "Floor", "text", true, "e.g. 16", null));
+                officeFields.add(createField("office.unit", "Unit", "text", true, "e.g. 04", null));
+                officeFields.add(createField("office.building", "Building", "text", false, "e.g. International Plaza", null));
+                officeFields.add(createField("office.country", "Country", "text", false, "e.g. Singapore", null));
+
+                officeSec.setFields(officeFields);
+                officeSec.setLastUpdatedBy("System Migration");
+                officeSec.setLastUpdatedAt(new Date());
+
+                if (officeSec.getPublishedData() != null) {
+                    Map<String, Object> newPublishData = new HashMap<>(officeSec.getPublishedData());
+                    newPublishData.put("fields", officeFields);
+                    officeSec.setPublishedData(newPublishData);
+                } else {
+                    officeSec.setPublishedData(Map.of(
+                        "id", officeSec.getId(),
+                        "key", officeSec.getKey(),
+                        "title", officeSec.getTitle(),
+                        "description", officeSec.getDescription(),
+                        "type", officeSec.getType(),
+                        "sortOrder", officeSec.getSortOrder(),
+                        "fields", officeFields,
+                        "applicableServices", "All"
+                    ));
+                }
+                preRegSectionRepository.save(officeSec);
+            }
+        }
+
         if (preRegSectionRepository.count() > 0) {
             return;
         }
@@ -56,14 +104,14 @@ public class PreRegSectionController {
 
         // 4. Registered Office
         List<Map<String, Object>> officeFields = new ArrayList<>();
-        officeFields.add(createField("office.useService", "Registered Address Option", "select", true, "", List.of("true:Globalisor Premium CBD Address ($480/yr)", "false:Use my own local address")));
-        
-        Map<String, Object> addrField = createFieldWithHint("office.address", "Office Address", "textarea", true, "Enter your own address if not using Globalisor service", null, "Please enter full address details.");
-        addrField.put("condKey", "office.useService");
-        addrField.put("condOperator", "equals");
-        addrField.put("condValue", "false");
-        officeFields.add(addrField);
-        
+        officeFields.add(createFieldWithHint("office.useService", "Registered Address Option *", "select", true, "$480 per year", List.of("false:Yes, I have Office Address", "true:No, I Need Globalisor Registered Address"), "Statutorily required. Real address in Singapore, mail scanned weekly."));
+        officeFields.add(createField("office.postalCode", "Postal Code", "text", true, "e.g. 079903", null));
+        officeFields.add(createField("office.block", "Block Number", "text", true, "e.g. 10", null));
+        officeFields.add(createField("office.streetName", "Street Name", "text", true, "e.g. Anson Road", null));
+        officeFields.add(createField("office.floor", "Floor", "text", true, "e.g. 16", null));
+        officeFields.add(createField("office.unit", "Unit", "text", true, "e.g. 04", null));
+        officeFields.add(createField("office.building", "Building", "text", false, "e.g. International Plaza", null));
+        officeFields.add(createField("office.country", "Country", "text", false, "e.g. Singapore", null));
         defaults.add(new PreRegSection("sec-office", "office", "Registered Office", "Singapore registered office details", "form", 4, officeFields));
 
         // 5. Your package is up Next
