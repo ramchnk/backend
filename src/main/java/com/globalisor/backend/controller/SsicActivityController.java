@@ -9,8 +9,10 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @CrossOrigin(origins = "*", maxAge = 3600)
@@ -52,6 +54,26 @@ public class SsicActivityController {
         }
         SsicActivity saved = ssicActivityRepository.save(activity);
         return ResponseEntity.ok(saved);
+    }
+
+    @PostMapping("/bulk")
+    public ResponseEntity<?> bulkImport(@RequestBody List<SsicActivity> activities) {
+        List<SsicActivity> toSave = new ArrayList<>();
+        Date now = new Date();
+        String updatedBy = getLoggedInAdminName();
+        for (SsicActivity a : activities) {
+            if (a.getId() == null || a.getId().isEmpty()) {
+                a.setId("ssic-" + a.getCode());
+            }
+            a.setLastUpdatedBy(updatedBy);
+            a.setLastUpdatedAt(now);
+            if (a.getStatus() == null || a.getStatus().isEmpty()) {
+                a.setStatus("PUBLISHED");
+            }
+            toSave.add(a);
+        }
+        List<SsicActivity> saved = ssicActivityRepository.saveAll(toSave);
+        return ResponseEntity.ok(Map.of("imported", saved.size()));
     }
 
     @PutMapping("/{id}")

@@ -90,6 +90,8 @@ public class WebSecurityConfig {
                         .requestMatchers("/api/prereg-sections", "/api/prereg-sections/**").permitAll()
                         .requestMatchers("/api/ssic-activities", "/api/ssic-activities/**").permitAll()
                         .requestMatchers("/api/requirements/**").permitAll()
+                        .requestMatchers("/api/name-check/**").permitAll()
+                        .requestMatchers("/api/hr/**").permitAll()
                         .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated()
                 );

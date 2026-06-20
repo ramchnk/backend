@@ -18,6 +18,17 @@ public class User {
     private String role = "USER";
     private String plainPassword;
     private Long lastSeenTime;
+    
+    // HR & Staff ID Card Fields
+    private String employeeId;
+    private String designation;
+    private String department;
+    private String staffPhoto;
+    private String cardStatus = "ACTIVE";
+    private String cardIssueDate;
+    private String cardValidUntil;
+    private String onlineStatus = "OFFLINE";
+    private String attendanceStatus = "SIGNED_OUT";
 
     public User(String firstName, String lastName, String email, String password) {
         this.firstName = firstName;

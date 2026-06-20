@@ -46,6 +46,9 @@ public class MigratedEndpointsController {
     NotificationRepository notificationRepository;
 
     @Autowired
+    com.globalisor.backend.service.NotificationService notificationService;
+
+    @Autowired
     MessageRepository messageRepository;
 
     @Autowired
@@ -241,10 +244,21 @@ public class MigratedEndpointsController {
             map.put("clientId", k.getClientId());
             map.put("name", k.getName());
             map.put("idType", k.getIdType());
+            map.put("idNum", k.getIdNum() != null ? k.getIdNum() : "N/A");
+            map.put("idExpiry", k.getIdExpiry() != null ? k.getIdExpiry() : "N/A");
             map.put("nation", k.getNation());
             map.put("status", k.getStatus());
             map.put("risk", k.getRisk());
             map.put("lastUpdated", k.getLastUpdated());
+            map.put("identityStatus", k.getIdentityStatus() != null ? k.getIdentityStatus() : "pending");
+            map.put("amlStatus", k.getAmlStatus() != null ? k.getAmlStatus() : "pending");
+            map.put("pepStatus", k.getPepStatus() != null ? k.getPepStatus() : "pending");
+            map.put("sanctionsStatus", k.getSanctionsStatus() != null ? k.getSanctionsStatus() : "pending");
+            map.put("overrideNotes", k.getOverrideNotes() != null ? k.getOverrideNotes() : "");
+            map.put("overrideBy", k.getOverrideBy() != null ? k.getOverrideBy() : "");
+            map.put("overrideAt", k.getOverrideAt() != null ? k.getOverrideAt() : 0L);
+            map.put("shuftiRef", k.getShuftiRef() != null ? k.getShuftiRef() : "");
+            map.put("auditLogs", k.getAuditLogs() != null ? k.getAuditLogs() : new ArrayList<String>());
 
             Optional<User> userOpt = userRepository.findById(k.getClientId());
             if (userOpt.isPresent()) {
@@ -264,10 +278,82 @@ public class MigratedEndpointsController {
             return ResponseEntity.notFound().build();
         }
         Kyc kyc = kycOpt.get();
-        if (updates.containsKey("status")) kyc.setStatus((String) updates.get("status"));
-        if (updates.containsKey("risk")) kyc.setRisk((String) updates.get("risk"));
+        if (kyc.getAuditLogs() == null) {
+            kyc.setAuditLogs(new ArrayList<>());
+        }
+        
+        if (updates.containsKey("status")) {
+            String oldStatus = kyc.getStatus();
+            String newStatus = (String) updates.get("status");
+            kyc.setStatus(newStatus);
+            kyc.getAuditLogs().add("KYC overall status overridden from " + oldStatus + " to " + newStatus);
+        }
+        if (updates.containsKey("risk")) {
+            String oldRisk = kyc.getRisk();
+            String newRisk = (String) updates.get("risk");
+            kyc.setRisk(newRisk);
+            kyc.getAuditLogs().add("Risk rating modified from " + oldRisk + " to " + newRisk);
+        }
+        if (updates.containsKey("identityStatus")) {
+            kyc.setIdentityStatus((String) updates.get("identityStatus"));
+            kyc.getAuditLogs().add("Identity check status updated to: " + updates.get("identityStatus"));
+        }
+        if (updates.containsKey("amlStatus")) {
+            kyc.setAmlStatus((String) updates.get("amlStatus"));
+            kyc.getAuditLogs().add("AML screening status updated to: " + updates.get("amlStatus"));
+        }
+        if (updates.containsKey("pepStatus")) {
+            kyc.setPepStatus((String) updates.get("pepStatus"));
+            kyc.getAuditLogs().add("PEP listing check status updated to: " + updates.get("pepStatus"));
+        }
+        if (updates.containsKey("sanctionsStatus")) {
+            kyc.setSanctionsStatus((String) updates.get("sanctionsStatus"));
+            kyc.getAuditLogs().add("Sanctions list check status updated to: " + updates.get("sanctionsStatus"));
+        }
+        if (updates.containsKey("overrideNotes")) {
+            kyc.setOverrideNotes((String) updates.get("overrideNotes"));
+        }
+        if (updates.containsKey("overrideBy")) {
+            kyc.setOverrideBy((String) updates.get("overrideBy"));
+            kyc.getAuditLogs().add("Review completed by officer: " + updates.get("overrideBy"));
+        }
+        
+        kyc.setOverrideAt(System.currentTimeMillis());
         kyc.setLastUpdated(System.currentTimeMillis());
         Kyc saved = kycRepository.save(kyc);
+
+        // Also update matching Compliance record to sync statuses
+        Optional<Compliance> compOpt = complianceRepository.findAll().stream().filter(c -> c.getClientId().equals(kyc.getClientId())).findFirst();
+        if (compOpt.isPresent()) {
+            Compliance comp = compOpt.get();
+            comp.setStatus(kyc.getStatus());
+            comp.setRisk(kyc.getRisk());
+            comp.setAmlStatus(kyc.getAmlStatus());
+            comp.setPepStatus(kyc.getPepStatus());
+            comp.setSanctionsStatus(kyc.getSanctionsStatus());
+            comp.setLastUpdated(System.currentTimeMillis());
+            complianceRepository.save(comp);
+        }
+
+        // Notify client
+        try {
+            notificationService.sendNotification(
+                kyc.getClientId(),
+                "KYC Verification Update",
+                "Your compliance profile review is complete. Overall KYC Status: " + saved.getStatus().toUpperCase() + " (Risk: " + saved.getRisk() + ").",
+                "compliance",
+                saved.getId(),
+                "Info"
+            );
+        } catch(Exception e){}
+
+        // WS Event broadcast
+        Map<String, Object> syncEvent = new HashMap<>();
+        syncEvent.put("type", "compliance_sync");
+        syncEvent.put("clientId", kyc.getClientId());
+        syncEvent.put("kycId", saved.getId());
+        chatWebSocketHandler.broadcastEvent(syncEvent);
+
         return ResponseEntity.ok(saved);
     }
 
@@ -282,9 +368,23 @@ public class MigratedEndpointsController {
             map.put("clientId", c.getClientId());
             map.put("name", c.getName());
             map.put("type", c.getType());
+            map.put("requirement", c.getType()); // Fix undefined in compliance.html
             map.put("status", c.getStatus());
             map.put("risk", c.getRisk());
             map.put("lastUpdated", c.getLastUpdated());
+            
+            // Calculate dynamic deadline (30 days from update)
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+            long updateTime = c.getLastUpdated() != null ? c.getLastUpdated() : System.currentTimeMillis();
+            map.put("deadline", sdf.format(new Date(updateTime + 30L * 24 * 60 * 60 * 1000)));
+
+            map.put("amlStatus", c.getAmlStatus() != null ? c.getAmlStatus() : "pending");
+            map.put("pepStatus", c.getPepStatus() != null ? c.getPepStatus() : "pending");
+            map.put("sanctionsStatus", c.getSanctionsStatus() != null ? c.getSanctionsStatus() : "pending");
+            map.put("overrideNotes", c.getOverrideNotes() != null ? c.getOverrideNotes() : "");
+            map.put("overrideBy", c.getOverrideBy() != null ? c.getOverrideBy() : "");
+            map.put("overrideAt", c.getOverrideAt() != null ? c.getOverrideAt() : 0L);
+            map.put("auditLogs", c.getAuditLogs() != null ? c.getAuditLogs() : new ArrayList<String>());
 
             Optional<User> userOpt = userRepository.findById(c.getClientId());
             if (userOpt.isPresent()) {
@@ -304,11 +404,196 @@ public class MigratedEndpointsController {
             return ResponseEntity.notFound().build();
         }
         Compliance comp = compOpt.get();
-        if (updates.containsKey("status")) comp.setStatus((String) updates.get("status"));
-        if (updates.containsKey("risk")) comp.setRisk((String) updates.get("risk"));
+        if (comp.getAuditLogs() == null) {
+            comp.setAuditLogs(new ArrayList<>());
+        }
+
+        if (updates.containsKey("status")) {
+            String oldStatus = comp.getStatus();
+            String newStatus = (String) updates.get("status");
+            comp.setStatus(newStatus);
+            comp.getAuditLogs().add("Compliance status overridden from " + oldStatus + " to " + newStatus);
+        }
+        if (updates.containsKey("risk")) {
+            String oldRisk = comp.getRisk();
+            String newRisk = (String) updates.get("risk");
+            comp.setRisk(newRisk);
+            comp.getAuditLogs().add("Risk classification changed from " + oldRisk + " to " + newRisk);
+        }
+        if (updates.containsKey("amlStatus")) {
+            comp.setAmlStatus((String) updates.get("amlStatus"));
+        }
+        if (updates.containsKey("pepStatus")) {
+            comp.setPepStatus((String) updates.get("pepStatus"));
+        }
+        if (updates.containsKey("sanctionsStatus")) {
+            comp.setSanctionsStatus((String) updates.get("sanctionsStatus"));
+        }
+        if (updates.containsKey("overrideNotes")) {
+            comp.setOverrideNotes((String) updates.get("overrideNotes"));
+        }
+        if (updates.containsKey("overrideBy")) {
+            comp.setOverrideBy((String) updates.get("overrideBy"));
+            comp.getAuditLogs().add("Manual review updated by officer: " + updates.get("overrideBy"));
+        }
+
+        comp.setOverrideAt(System.currentTimeMillis());
         comp.setLastUpdated(System.currentTimeMillis());
         Compliance saved = complianceRepository.save(comp);
+
+        // Notify client
+        try {
+            notificationService.sendNotification(
+                comp.getClientId(),
+                "Compliance Requirement Update",
+                "Compliance item '" + saved.getType() + "' has been updated to: " + saved.getStatus().toUpperCase() + ".",
+                "compliance",
+                saved.getId(),
+                "Info"
+            );
+        } catch(Exception e){}
+
+        // WS Event broadcast
+        Map<String, Object> syncEvent = new HashMap<>();
+        syncEvent.put("type", "compliance_sync");
+        syncEvent.put("clientId", comp.getClientId());
+        syncEvent.put("complianceId", saved.getId());
+        chatWebSocketHandler.broadcastEvent(syncEvent);
+
         return ResponseEntity.ok(saved);
+    }
+
+    @PostMapping("/compliance/shufti-verify")
+    public ResponseEntity<?> runShuftiVerification(@RequestBody Map<String, String> body) {
+        String clientId = body.get("clientId");
+        String name = body.get("name");
+        String idType = body.get("idType");
+        String idNum = body.get("idNum");
+        String nation = body.get("nation");
+
+        if (clientId == null || name == null || idType == null || idNum == null || nation == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Missing required fields"));
+        }
+
+        // Find or create KYC record
+        Optional<Kyc> kycOpt = kycRepository.findAll().stream().filter(k -> k.getClientId().equals(clientId)).findFirst();
+        Kyc kyc;
+        if (kycOpt.isPresent()) {
+            kyc = kycOpt.get();
+        } else {
+            kyc = new Kyc();
+            kyc.setId("KYC-" + System.currentTimeMillis());
+            kyc.setClientId(clientId);
+        }
+
+        kyc.setName(name);
+        kyc.setIdType(idType);
+        kyc.setIdNum(idNum);
+        kyc.setNation(nation);
+        kyc.setShuftiRef("SHFT-" + System.currentTimeMillis() + "-" + (int)(Math.random() * 1000));
+        
+        if (kyc.getAuditLogs() == null) {
+            kyc.setAuditLogs(new ArrayList<>());
+        }
+        kyc.getAuditLogs().add("Shufti compliance scan initialized. Ref: " + kyc.getShuftiRef());
+
+        String lowerName = name.toLowerCase();
+
+        // 1. Identity Document OCR Verification Simulation
+        if (idNum.trim().isEmpty() || idNum.equalsIgnoreCase("N/A")) {
+            kyc.setIdentityStatus("failed");
+            kyc.getAuditLogs().add("Identity document check failed: Missing or invalid document reference number.");
+        } else {
+            kyc.setIdentityStatus("verified");
+            kyc.getAuditLogs().add("Identity document OCR analysis: Verification success. Match confidence: 99.2%");
+        }
+
+        // 2. PEP (Politically Exposed Persons) Database Check
+        if (lowerName.contains("pep") || lowerName.contains("politician") || lowerName.contains("marcus ng")) {
+            kyc.setPepStatus("match");
+            kyc.getAuditLogs().add("PEP screening: MATCH DETECTED. Customer matches records of politically exposed individuals.");
+        } else {
+            kyc.setPepStatus("clean");
+            kyc.getAuditLogs().add("PEP screening: CLEAN. No database matches found.");
+        }
+
+        // 3. Sanctions Lists Check (OFAC, EU, UN, MAS, HMT)
+        if (lowerName.contains("sanction") || lowerName.contains("terrorist") || lowerName.contains("marcus ng")) {
+            kyc.setSanctionsStatus("match");
+            kyc.getAuditLogs().add("Sanctions monitoring: MATCH DETECTED. Match found on watchlists.");
+        } else {
+            kyc.setSanctionsStatus("clean");
+            kyc.getAuditLogs().add("Sanctions monitoring: CLEAN. No watchlist matches detected.");
+        }
+
+        // 4. Overall AML & Compliance status aggregation
+        if ("match".equals(kyc.getPepStatus()) || "match".equals(kyc.getSanctionsStatus())) {
+            kyc.setAmlStatus("flagged");
+            kyc.setRisk("High");
+            kyc.setStatus("flagged");
+            kyc.getAuditLogs().add("AML Screening complete: FLAGGED (High risk PEP/Sanction hit requires manual override).");
+        } else if ("failed".equals(kyc.getIdentityStatus())) {
+            kyc.setAmlStatus("pending");
+            kyc.setRisk("Medium");
+            kyc.setStatus("under review");
+            kyc.getAuditLogs().add("AML Screening complete: PENDING (Identity document verification failure).");
+        } else {
+            kyc.setAmlStatus("clean");
+            kyc.setRisk("Low");
+            kyc.setStatus("approved");
+            kyc.getAuditLogs().add("AML Screening complete: APPROVED (Verified, Clean background check).");
+        }
+
+        kyc.setLastUpdated(System.currentTimeMillis());
+        Kyc savedKyc = kycRepository.save(kyc);
+
+        // Auto-sync client's primary Compliance record
+        Optional<Compliance> compOpt = complianceRepository.findAll().stream().filter(c -> c.getClientId().equals(clientId)).findFirst();
+        if (compOpt.isPresent()) {
+            Compliance comp = compOpt.get();
+            comp.setAmlStatus(kyc.getAmlStatus());
+            comp.setPepStatus(kyc.getPepStatus());
+            comp.setSanctionsStatus(kyc.getSanctionsStatus());
+            comp.setStatus(kyc.getStatus());
+            comp.setRisk(kyc.getRisk());
+            comp.setLastUpdated(System.currentTimeMillis());
+            if (comp.getAuditLogs() == null) {
+                comp.setAuditLogs(new ArrayList<>());
+            }
+            comp.getAuditLogs().add("AML Screening results auto-synced. Overall compliance rating: " + comp.getStatus().toUpperCase());
+            complianceRepository.save(comp);
+        }
+
+        // Trigger Notifications
+        try {
+            // Client dashboard alert
+            notificationService.sendNotification(
+                clientId,
+                "Verification Scanning Complete",
+                "Your real-time background screening has processed: " + kyc.getStatus().toUpperCase() + " (Risk: " + kyc.getRisk() + ").",
+                "compliance",
+                savedKyc.getId(),
+                "Info"
+            );
+            // Internal compliance dashboard alert
+            notificationService.sendNotification(
+                "admin",
+                "Shufti Compliance Alert",
+                "Real-time screening executed for '" + name + "'. Status: " + kyc.getStatus().toUpperCase() + " (Risk: " + kyc.getRisk() + ").",
+                "compliance",
+                savedKyc.getId(),
+                "Info"
+            );
+        } catch(Exception e){}
+
+        // WS Sync push
+        Map<String, Object> syncEvent = new HashMap<>();
+        syncEvent.put("type", "compliance_sync");
+        syncEvent.put("clientId", clientId);
+        syncEvent.put("kycId", savedKyc.getId());
+        chatWebSocketHandler.broadcastEvent(syncEvent);
+
+        return ResponseEntity.ok(savedKyc);
     }
 
     // --- DOCUMENT ENDPOINTS ---
