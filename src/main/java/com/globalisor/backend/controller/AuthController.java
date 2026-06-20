@@ -9,6 +9,10 @@ import com.globalisor.backend.repository.UserRepository;
 import com.globalisor.backend.security.EncryptionUtils;
 import com.globalisor.backend.security.JwtUtils;
 import com.globalisor.backend.security.UserDetailsImpl;
+import com.globalisor.backend.model.Kyc;
+import com.globalisor.backend.model.Compliance;
+import com.globalisor.backend.repository.KycRepository;
+import com.globalisor.backend.repository.ComplianceRepository;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -28,6 +32,12 @@ public class AuthController {
 
     @Autowired
     UserRepository userRepository;
+
+    @Autowired
+    KycRepository kycRepository;
+
+    @Autowired
+    ComplianceRepository complianceRepository;
 
     @Autowired
     PasswordEncoder encoder;
@@ -81,6 +91,32 @@ public class AuthController {
                 encoder.encode(signUpRequest.getPassword()));
 
         userRepository.save(user);
+
+        // Auto-initialize KYC record for new client
+        Kyc kyc = new Kyc();
+        kyc.setId("KYC-" + System.currentTimeMillis());
+        kyc.setClientId(user.getId());
+        kyc.setName(user.getFirstName() + " " + user.getLastName());
+        kyc.setIdType("N/A");
+        kyc.setIdNum("N/A");
+        kyc.setNation("N/A");
+        kyc.setStatus("pending");
+        kyc.setRisk("Low");
+        kyc.setLastUpdated(System.currentTimeMillis());
+        kyc.getAuditLogs().add("KYC profile initialized on user registration.");
+        kycRepository.save(kyc);
+
+        // Auto-initialize Compliance record for new client
+        Compliance compliance = new Compliance();
+        compliance.setId("COMP-" + System.currentTimeMillis());
+        compliance.setClientId(user.getId());
+        compliance.setName(user.getFirstName() + " " + user.getLastName());
+        compliance.setType("AML Screening");
+        compliance.setStatus("pending");
+        compliance.setRisk("Low");
+        compliance.setLastUpdated(System.currentTimeMillis());
+        compliance.getAuditLogs().add("AML compliance monitoring initialized on registration.");
+        complianceRepository.save(compliance);
 
         try {
             notificationService.sendNotification(

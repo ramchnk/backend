@@ -8,12 +8,18 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 
 @Component
 public class DataInitializer implements CommandLineRunner {
 
     @Autowired
     UserRepository userRepository;
+
+    @Autowired
+    AttendanceRepository attendanceRepository;
 
     @Autowired
     RequirementRepository requirementRepository;
@@ -94,6 +100,12 @@ public class DataInitializer implements CommandLineRunner {
             staff.setId("staff-sarah");
             staff.setRole("STAFF");
             staff.setPlainPassword("password123");
+            staff.setEmployeeId("GLOB-STF-1001");
+            staff.setDesignation("Lead Compliance Officer");
+            staff.setDepartment("AML & Operations");
+            staff.setCardStatus("ACTIVE");
+            staff.setCardIssueDate("2026-01-01");
+            staff.setCardValidUntil("2028-01-01");
             userRepository.save(staff);
         }
 
@@ -193,6 +205,43 @@ public class DataInitializer implements CommandLineRunner {
             ssicActivityRepository.save(new SsicActivity("ssic-46900", "46900", "General wholesale trade (including general importers and exporters)", "Wholesale Trade", "Import, export, and wholesale of a wide variety of goods without a dominant product line.", "PUBLISHED"));
             ssicActivityRepository.save(new SsicActivity("ssic-70201", "70201", "Management consultancy services", "Professional, Scientific and Technical Activities", "Providing advisory and operational assistance to businesses on management, strategy, and logistics.", "PUBLISHED"));
             ssicActivityRepository.save(new SsicActivity("ssic-64201", "64201", "Holding companies", "Financial and Insurance Activities", "Investment holding companies that hold shares in subsidiary companies.", "PUBLISHED"));
+        }
+
+        // Seed Attendance History for Sarah Lim
+        if (attendanceRepository.count() == 0) {
+            for (int i = 15; i >= 1; i--) {
+                Attendance att = new Attendance();
+                att.setId("att-mock-" + i);
+                att.setUserId("staff-sarah");
+                
+                LocalDate d = LocalDate.now().minusDays(i);
+                att.setDate(d.format(DateTimeFormatter.ISO_LOCAL_DATE));
+                
+                long baseTime = d.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();
+                long signInOffset = (long)(8.75 * 3600000) + (long)(Math.random() * 45 * 60000);
+                long signIn = baseTime + signInOffset;
+                
+                long signOutOffset = (long)(17.5 * 3600000) + (long)(Math.random() * 60 * 60000);
+                long signOut = baseTime + signOutOffset;
+                
+                att.setSignInTime(signIn);
+                att.setSignOutTime(signOut);
+                att.setTimeZone(ZoneId.systemDefault().getId());
+                att.setIpAddress("192.168.1." + (100 + i));
+                att.setDevice("Windows Desktop (Chrome)");
+                att.setLastActivity(signOut);
+                att.setStatus("SIGNED_OUT");
+                
+                long breakIn = baseTime + (long)(12.5 * 3600000);
+                long breakOut = baseTime + (long)(13.5 * 3600000);
+                Attendance.BreakSession bs = new Attendance.BreakSession(breakIn, breakOut);
+                att.setBreaks(Arrays.asList(bs));
+                
+                double hours = (signOut - signIn - (breakOut - breakIn)) / 3600000.0;
+                att.setTotalWorkingHours(Math.max(0.0, Math.round(hours * 100.0) / 100.0));
+                
+                attendanceRepository.save(att);
+            }
         }
     }
 

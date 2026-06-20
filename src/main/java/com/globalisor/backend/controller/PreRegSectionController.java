@@ -31,14 +31,14 @@ public class PreRegSectionController {
             createField("names[0]", "Proposed Name Option 1", "text", true, "Primary preferred name", null),
             createField("names[1]", "Proposed Name Option 2", "text", true, "Backup name if Option 1 is unavailable", null),
             createField("names[2]", "Proposed Name Option 3", "text", false, "Alternative name or enter NA", null),
-            createField("activities", "Business Activities", "ssic", true, "Search by SSIC code or activity name", null),
+            createField("activities.primary", "Primary Business Activity (SSIC Code)", "ssic-single", true, "Search by SSIC code or activity name", null),
+            createField("activities.secondary", "Secondary Business Activity (SSIC Code)", "ssic-single", false, "Search by SSIC code or activity name", null),
             createField("names[3]", "Proposed Name Option 4", "text", false, "", null)
         );
         defaults.add(new PreRegSection("sec-names", "names", "SSIC & Industry Name", "Proposed names and activities for ACRA verification", "form", 1, nameFields));
 
         // 2. Directors & Shareholders
         List<Map<String, Object>> directorFields = List.of(
-            createFieldWithHint("office.useService", "Registered office address", "switch", false, "$480 per year", null, "Statutorily required. Real address in Singapore, mail scanned weekly."),
             createFieldWithHint("secretary.required", "Corporate secretary", "switch", false, "$720 per year", null, "Required within 6 months. Handles annual filings and board minutes.")
         );
         defaults.add(new PreRegSection("sec-directors-shareholders", "directors-shareholders", "Directors & Shareholders", "Details of company directors and shareholders", "form", 2, directorFields));
