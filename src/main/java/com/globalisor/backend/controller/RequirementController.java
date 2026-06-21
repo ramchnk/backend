@@ -133,4 +133,57 @@ public class RequirementController {
             return ResponseEntity.badRequest().body("No requirement found to submit");
         }
     }
+
+    @PostMapping("/pay")
+    public ResponseEntity<?> payRequirement(@RequestBody Map<String, Object> data) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication.getPrincipal() instanceof UserDetailsImpl)) {
+            return ResponseEntity.status(401).body("Unauthorized");
+        }
+        UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
+
+        Optional<Requirement> reqOpt = requirementRepository.findByUserId(userDetails.getId());
+        Requirement requirement;
+        if (reqOpt.isPresent()) {
+            requirement = reqOpt.get();
+            requirement.setData(data);
+            requirement.setUpdatedAt(new java.util.Date());
+        } else {
+            requirement = new Requirement(userDetails.getId(), data);
+        }
+        requirementRepository.save(requirement);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", requirement.getStatus());
+        response.put("data", requirement.getData());
+        response.put("sectionStatuses", requirement.getSectionStatuses());
+        return ResponseEntity.ok(response);
+    }
+
+    @DeleteMapping
+    public ResponseEntity<?> deleteRequirement() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication.getPrincipal() instanceof UserDetailsImpl)) {
+            return ResponseEntity.status(401).body("Unauthorized");
+        }
+        UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
+
+        Optional<Requirement> reqOpt = requirementRepository.findByUserId(userDetails.getId());
+        if (reqOpt.isPresent()) {
+            requirementRepository.delete(reqOpt.get());
+            try {
+                notificationService.sendNotification(
+                        "admin",
+                        "Application Deleted",
+                        userDetails.getFirstName() + " " + userDetails.getLastName() + " reset and deleted their application.",
+                        "application",
+                        reqOpt.get().getId(),
+                        "Warning"
+                );
+            } catch (Exception e) {}
+            return ResponseEntity.ok().body("Requirement deleted successfully");
+        } else {
+            return ResponseEntity.notFound().build();
+        }
+    }
 }
