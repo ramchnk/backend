@@ -20,6 +20,52 @@ public class PreRegSectionController {
     PreRegSectionRepository preRegSectionRepository;
 
     private void seedDefaultSections() {
+        // Special case: if names exists but uses old activities config, update it.
+        Optional<PreRegSection> namesOpt = preRegSectionRepository.findById("sec-names");
+        if (namesOpt.isPresent()) {
+            PreRegSection namesSec = namesOpt.get();
+            boolean hasPrimarySsic = false;
+            if (namesSec.getFields() != null) {
+                for (Map<String, Object> f : namesSec.getFields()) {
+                    if ("activities.primary".equals(f.get("key"))) {
+                        hasPrimarySsic = true;
+                        break;
+                    }
+                }
+            }
+            if (!hasPrimarySsic) {
+                List<Map<String, Object>> nameFields = List.of(
+                    createField("names[0]", "Proposed Name Option 1", "text", true, "Primary preferred name", null),
+                    createField("names[1]", "Proposed Name Option 2", "text", true, "Backup name if Option 1 is unavailable", null),
+                    createField("names[2]", "Proposed Name Option 3", "text", false, "Alternative name or enter NA", null),
+                    createField("activities.primary", "Primary Business Activity (SSIC Code)", "ssic-single", true, "Search by SSIC code or activity name", null),
+                    createField("activities.secondary", "Secondary Business Activity (SSIC Code)", "ssic-single", false, "Search by SSIC code or activity name", null),
+                    createField("names[3]", "Proposed Name Option 4", "text", false, "", null)
+                );
+                namesSec.setFields(nameFields);
+                namesSec.setLastUpdatedBy("System Migration");
+                namesSec.setLastUpdatedAt(new Date());
+
+                if (namesSec.getPublishedData() != null) {
+                    Map<String, Object> newPublishData = new HashMap<>(namesSec.getPublishedData());
+                    newPublishData.put("fields", nameFields);
+                    namesSec.setPublishedData(newPublishData);
+                } else {
+                    namesSec.setPublishedData(Map.of(
+                        "id", namesSec.getId(),
+                        "key", namesSec.getKey(),
+                        "title", namesSec.getTitle(),
+                        "description", namesSec.getDescription(),
+                        "type", namesSec.getType(),
+                        "sortOrder", namesSec.getSortOrder(),
+                        "fields", nameFields,
+                        "applicableServices", "All"
+                    ));
+                }
+                preRegSectionRepository.save(namesSec);
+            }
+        }
+
         // Special case: if office exists but is using the old textarea format, update it.
         Optional<PreRegSection> officeOpt = preRegSectionRepository.findById("sec-office");
         if (officeOpt.isPresent()) {
