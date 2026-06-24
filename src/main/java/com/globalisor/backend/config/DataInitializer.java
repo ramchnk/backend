@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
+import com.globalisor.backend.security.EncryptionUtils;
 
 import java.util.*;
 import java.time.LocalDate;
@@ -54,8 +55,32 @@ public class DataInitializer implements CommandLineRunner {
     @Autowired
     PasswordEncoder encoder;
 
+    @Autowired
+    EncryptionUtils encryptionUtils;
+
     @Override
     public void run(String... args) throws Exception {
+        // Auto-seed guest user for testing/onboarding fallback
+        try {
+            String encryptedGuestEmail = encryptionUtils.encryptQueryable("guest@globalisor.com");
+            if (!userRepository.existsByEmail(encryptedGuestEmail)) {
+                String defaultPassword = encoder.encode("password123");
+                User guest = new User("Guest", "Client", "guest@globalisor.com", defaultPassword);
+                guest.setId("C-GUEST");
+                guest.setRole("USER");
+                userRepository.save(guest);
+
+                if (requirementRepository.findByUserId("C-GUEST").isEmpty()) {
+                    Map<String, Object> data = new HashMap<>();
+                    data.put("names", Arrays.asList("Guest Venture Pte. Ltd."));
+                    Requirement req = new Requirement("C-GUEST", data);
+                    req.setStatus("pending");
+                    requirementRepository.save(req);
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Failed to seed guest@globalisor.com: " + e.getMessage());
+        }
         // 1. Seed Users (Clients)
         if (userRepository.count() == 0) {
             String defaultPassword = encoder.encode("password123");
