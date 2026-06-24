@@ -92,6 +92,8 @@ public class WebSecurityConfig {
                         .requestMatchers("/api/requirements/**").permitAll()
                         .requestMatchers("/api/name-check/**").permitAll()
                         .requestMatchers("/api/hr/**").permitAll()
+                        .requestMatchers("/api/onboarding/**").permitAll()
+                        .requestMatchers("/api/ocr/**").permitAll()
                         .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated()
                 );

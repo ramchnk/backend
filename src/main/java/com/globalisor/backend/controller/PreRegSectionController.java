@@ -115,6 +115,8 @@ public class PreRegSectionController {
         }
 
         if (preRegSectionRepository.count() > 0) {
+            // Migrate: ensure all existing sections have publishedData and are PUBLISHED
+            migrateExistingSections();
             return;
         }
 
@@ -196,6 +198,36 @@ public class PreRegSectionController {
         if (options != null) f.put("options", options);
         if (hint != null) f.put("hint", hint);
         return f;
+    }
+
+    private void migrateExistingSections() {
+        List<PreRegSection> sections = preRegSectionRepository.findAll();
+        boolean anyChanged = false;
+        for (PreRegSection s : sections) {
+            if (s.getPublishedData() == null || !"PUBLISHED".equals(s.getStatus())) {
+                s.setStatus("PUBLISHED");
+                s.setLastUpdatedBy("System Migration");
+                s.setLastUpdatedAt(new Date());
+                Map<String, Object> snapshot = new HashMap<>();
+                snapshot.put("id", s.getId());
+                snapshot.put("key", s.getKey());
+                snapshot.put("title", s.getTitle());
+                snapshot.put("description", s.getDescription());
+                snapshot.put("type", s.getType() != null ? s.getType() : "form");
+                snapshot.put("sortOrder", s.getSortOrder() != null ? s.getSortOrder() : 99);
+                snapshot.put("fields", s.getFields() != null ? s.getFields() : new ArrayList<>());
+                snapshot.put("applicableServices", s.getApplicableServices() != null ? s.getApplicableServices() : "All");
+                snapshot.put("checklists", s.getChecklists());
+                snapshot.put("faqs", s.getFaqs());
+                snapshot.put("attachments", s.getAttachments());
+                snapshot.put("documents", s.getDocuments());
+                s.setPublishedData(snapshot);
+                anyChanged = true;
+            }
+        }
+        if (anyChanged) {
+            preRegSectionRepository.saveAll(sections);
+        }
     }
 
     private String getLoggedInAdminName() {
