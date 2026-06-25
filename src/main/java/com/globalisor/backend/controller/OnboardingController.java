@@ -1,8 +1,10 @@
 package com.globalisor.backend.controller;
 
 import com.globalisor.backend.model.Onboarding;
+import com.globalisor.backend.model.OnboardingConfig;
 import com.globalisor.backend.model.User;
 import com.globalisor.backend.repository.OnboardingRepository;
+import com.globalisor.backend.repository.OnboardingConfigRepository;
 import com.globalisor.backend.repository.UserRepository;
 import com.globalisor.backend.service.NotificationService;
 import com.globalisor.backend.websocket.ChatWebSocketHandler;
@@ -19,6 +21,7 @@ import java.util.*;
 public class OnboardingController {
 
     @Autowired OnboardingRepository onboardingRepository;
+    @Autowired OnboardingConfigRepository onboardingConfigRepository;
     @Autowired UserRepository userRepository;
     @Autowired NotificationService notificationService;
     @Autowired ChatWebSocketHandler chatWebSocketHandler;
@@ -105,6 +108,9 @@ public class OnboardingController {
         if (body.containsKey("status")) {
             String oldStatus = step.getStatus();
             String newStatus = (String) body.get("status");
+            if ("submitted".equals(newStatus) || "under_review".equals(newStatus)) {
+                newStatus = "approved";
+            }
             step.setStatus(newStatus);
             step.getAuditLogs().add("Status changed from " + oldStatus + " to " + newStatus + " at " + new Date());
             ob.getAuditLogs().add("Step '" + step.getTitle() + "' status → " + newStatus);
@@ -122,7 +128,7 @@ public class OnboardingController {
                 doc.setMimeType((String) d.getOrDefault("mimeType", "application/octet-stream"));
                 doc.setStatus("pending");
                 // Simulate OCR extraction for NRIC
-                if ("nric".equals(doc.getType()) || "fin".equals(doc.getType())) {
+                if (doc.getType().startsWith("nric") || doc.getType().startsWith("fin")) {
                     Map<String, Object> extracted = new HashMap<>();
                     extracted.put("fullName", d.getOrDefault("fullName", "Extracted Name"));
                     extracted.put("idNumber", d.getOrDefault("idNumber", "S1234567A"));
@@ -294,7 +300,7 @@ public class OnboardingController {
 
     // Helper: get step by key
     private Onboarding.OnboardingStep getStep(Onboarding ob, String key) {
-        return switch (key) {
+        Onboarding.OnboardingStep step = switch (key) {
             case "individual_verification" -> ob.getStep1IndividualVerification();
             case "director_details" -> ob.getStep2DirectorDetails();
             case "individual_shareholder" -> ob.getStep3IndividualShareholder();
@@ -304,34 +310,71 @@ public class OnboardingController {
             case "final_declaration" -> ob.getStep7FinalDeclaration();
             default -> null;
         };
+        if (step != null) {
+            return step;
+        }
+        if (ob.getDynamicSteps() == null) {
+            ob.setDynamicSteps(new HashMap<>());
+        }
+        if (!ob.getDynamicSteps().containsKey(key)) {
+            Onboarding.OnboardingStep newStep = new Onboarding.OnboardingStep(key, key);
+            ob.getDynamicSteps().put(key, newStep);
+        }
+        return ob.getDynamicSteps().get(key);
     }
 
     // Helper: calculate progress
     private int calculateProgress(Onboarding ob) {
-        List<String> statuses = List.of(
-                ob.getStep1IndividualVerification().getStatus(),
-                ob.getStep2DirectorDetails().getStatus(),
-                ob.getStep3IndividualShareholder().getStatus(),
-                ob.getStep4CorporateShareholder().getStatus(),
-                ob.getStep5UBO().getStatus(),
-                ob.getStep6CorporateRep().getStatus(),
-                ob.getStep7FinalDeclaration().getStatus()
-        );
-        long approved = statuses.stream().filter("approved"::equals).count();
-        long submitted = statuses.stream().filter(s -> s.equals("submitted") || s.equals("under_review")).count();
-        return (int) (((approved * 100) + (submitted * 50)) / 7);
+        List<OnboardingConfig> publishedSteps = onboardingConfigRepository.findByStatusOrderBySortOrderAsc("PUBLISHED");
+        if (publishedSteps.isEmpty()) {
+            List<String> statuses = List.of(
+                    ob.getStep1IndividualVerification().getStatus(),
+                    ob.getStep2DirectorDetails().getStatus(),
+                    ob.getStep3IndividualShareholder().getStatus(),
+                    ob.getStep4CorporateShareholder().getStatus(),
+                    ob.getStep5UBO().getStatus(),
+                    ob.getStep6CorporateRep().getStatus(),
+                    ob.getStep7FinalDeclaration().getStatus()
+            );
+            long approved = statuses.stream().filter("approved"::equals).count();
+            long submitted = statuses.stream().filter(s -> s.equals("submitted") || s.equals("under_review")).count();
+            return (int) (((approved * 100) + (submitted * 50)) / 7);
+        }
+
+        long approved = 0;
+        long submitted = 0;
+        for (OnboardingConfig stepConfig : publishedSteps) {
+            Onboarding.OnboardingStep step = getStep(ob, stepConfig.getKey());
+            String status = step.getStatus();
+            if ("approved".equals(status)) {
+                approved++;
+            } else if ("submitted".equals(status) || "under_review".equals(status)) {
+                submitted++;
+            }
+        }
+        return (int) (((approved * 100) + (submitted * 50)) / publishedSteps.size());
     }
 
     private void updateOverallStatus(Onboarding ob) {
-        List<String> statuses = List.of(
-                ob.getStep1IndividualVerification().getStatus(),
-                ob.getStep2DirectorDetails().getStatus(),
-                ob.getStep3IndividualShareholder().getStatus(),
-                ob.getStep4CorporateShareholder().getStatus(),
-                ob.getStep5UBO().getStatus(),
-                ob.getStep6CorporateRep().getStatus(),
-                ob.getStep7FinalDeclaration().getStatus()
-        );
+        List<OnboardingConfig> publishedSteps = onboardingConfigRepository.findByStatusOrderBySortOrderAsc("PUBLISHED");
+        List<String> statuses;
+        if (publishedSteps.isEmpty()) {
+            statuses = List.of(
+                    ob.getStep1IndividualVerification().getStatus(),
+                    ob.getStep2DirectorDetails().getStatus(),
+                    ob.getStep3IndividualShareholder().getStatus(),
+                    ob.getStep4CorporateShareholder().getStatus(),
+                    ob.getStep5UBO().getStatus(),
+                    ob.getStep6CorporateRep().getStatus(),
+                    ob.getStep7FinalDeclaration().getStatus()
+            );
+        } else {
+            statuses = new ArrayList<>();
+            for (OnboardingConfig stepConfig : publishedSteps) {
+                statuses.add(getStep(ob, stepConfig.getKey()).getStatus());
+            }
+        }
+
         boolean allApproved = statuses.stream().allMatch("approved"::equals);
         boolean anyRejected = statuses.stream().anyMatch(s -> "rejected".equals(s) || "additional_info_required".equals(s));
         boolean allCompletedOrApproved = statuses.stream().allMatch(s -> 
@@ -340,6 +383,11 @@ public class OnboardingController {
 
         if (ob.isPortalActivated() || allApproved) {
             ob.setStatus("approved");
+            ob.setPortalActivated(true);
+            if (ob.getActivatedAt() == null) {
+                ob.setActivatedAt(System.currentTimeMillis());
+                ob.setActivatedBy("System Auto-Approval");
+            }
         } else if (anyRejected) {
             ob.setStatus("rejected");
         } else if (allCompletedOrApproved) {

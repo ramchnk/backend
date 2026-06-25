@@ -166,7 +166,7 @@ public class PreRegSectionController {
         List<Map<String, Object>> contactFields = List.of(
             createField("contact.firstName", "First Name", "text", true, "First name", null),
             createField("contact.lastName", "Last Name", "text", true, "Last name", null),
-            createField("contact.phone", "Contact Number", "text", true, "+65 1234 5678", null),
+            createField("contact.phone", "Contact Number", "text", true, "1234 5678", null),
             createField("contact.email", "Email ID", "text", true, "email@example.com", null)
         );
         defaults.add(new PreRegSection("sec-package-next", "contact", "Your package is up Next", "Provide your contact information for package processing", "form", 5, contactFields));

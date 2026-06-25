@@ -1,17 +1,29 @@
 package com.globalisor.backend.controller;
 
 import com.globalisor.backend.model.Requirement;
+import com.globalisor.backend.model.User;
+import com.globalisor.backend.model.Kyc;
+import com.globalisor.backend.model.Compliance;
+import com.globalisor.backend.model.Onboarding;
 import com.globalisor.backend.repository.RequirementRepository;
+import com.globalisor.backend.repository.UserRepository;
+import com.globalisor.backend.repository.KycRepository;
+import com.globalisor.backend.repository.ComplianceRepository;
+import com.globalisor.backend.repository.OnboardingRepository;
 import com.globalisor.backend.security.UserDetailsImpl;
+import com.globalisor.backend.security.EncryptionUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 import java.util.Optional;
 import java.util.HashMap;
+import java.util.Date;
+import java.util.List;
 
 @CrossOrigin(origins = "*", maxAge = 3600)
 @RestController
@@ -23,6 +35,24 @@ public class RequirementController {
  
     @Autowired
     private com.globalisor.backend.service.NotificationService notificationService;
+
+    @Autowired
+    UserRepository userRepository;
+
+    @Autowired
+    KycRepository kycRepository;
+
+    @Autowired
+    ComplianceRepository complianceRepository;
+
+    @Autowired
+    OnboardingRepository onboardingRepository;
+
+    @Autowired
+    PasswordEncoder encoder;
+
+    @Autowired
+    EncryptionUtils encryptionUtils;
 
     @GetMapping
     public ResponseEntity<?> getRequirement() {
@@ -38,6 +68,7 @@ public class RequirementController {
             response.put("status", req.get().getStatus());
             response.put("data", req.get().getData());
             response.put("sectionStatuses", req.get().getSectionStatuses());
+            response.put("applicationId", req.get().getId());
             return ResponseEntity.ok(response);
         } else {
             Map<String, Object> response = new HashMap<>();
@@ -85,6 +116,7 @@ public class RequirementController {
         response.put("status", requirement.getStatus());
         response.put("data", requirement.getData());
         response.put("sectionStatuses", requirement.getSectionStatuses());
+        response.put("applicationId", requirement.getId());
         return ResponseEntity.ok(response);
     }
 
@@ -128,6 +160,7 @@ public class RequirementController {
             response.put("status", requirement.getStatus());
             response.put("data", requirement.getData());
             response.put("sectionStatuses", requirement.getSectionStatuses());
+            response.put("applicationId", requirement.getId());
             return ResponseEntity.ok(response);
         } else {
             return ResponseEntity.badRequest().body("No requirement found to submit");
@@ -157,6 +190,7 @@ public class RequirementController {
         response.put("status", requirement.getStatus());
         response.put("data", requirement.getData());
         response.put("sectionStatuses", requirement.getSectionStatuses());
+        response.put("applicationId", requirement.getId());
         return ResponseEntity.ok(response);
     }
 
@@ -185,5 +219,123 @@ public class RequirementController {
         } else {
             return ResponseEntity.notFound().build();
         }
+    }
+
+    @PostMapping("/public/submit")
+    public ResponseEntity<?> publicSubmitRequirement(@RequestBody Map<String, Object> data) {
+        // 1. Extract contact details
+        @SuppressWarnings("unchecked")
+        Map<String, Object> contact = (Map<String, Object>) data.get("contact");
+        if (contact == null) {
+            return ResponseEntity.badRequest().body("Contact information is required");
+        }
+        String email = (String) contact.get("email");
+        String firstName = (String) contact.get("firstName");
+        String lastName = (String) contact.get("lastName");
+        
+        if (email == null || email.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body("Contact email is required");
+        }
+        if (firstName == null) firstName = "";
+        if (lastName == null) lastName = "";
+
+        // 2. Check if user already exists
+        String encryptedEmail = encryptionUtils.encryptQueryable(email);
+        Optional<User> userOpt = userRepository.findByEmail(encryptedEmail);
+        User clientUser;
+        String rawPassword = "";
+        
+        if (userOpt.isPresent()) {
+            clientUser = userOpt.get();
+            rawPassword = clientUser.getPlainPassword() != null ? clientUser.getPlainPassword() : "password123";
+        } else {
+            // Generate a random password: Glob-[4-digit-number]
+            int randomNum = (int) (Math.random() * 9000) + 1000;
+            rawPassword = "Glob-" + randomNum;
+            String encodedPassword = encoder.encode(rawPassword);
+            
+            clientUser = new User(firstName, lastName, email, encodedPassword);
+            clientUser.setRole("CLIENT");
+            clientUser.setPlainPassword(rawPassword);
+            userRepository.save(clientUser);
+            
+            // Auto-initialize KYC record for new client
+            Kyc kyc = new Kyc();
+            kyc.setId("KYC-" + System.currentTimeMillis());
+            kyc.setClientId(clientUser.getId());
+            kyc.setName(clientUser.getFirstName() + " " + clientUser.getLastName());
+            kyc.setIdType("N/A");
+            kyc.setIdNum("N/A");
+            kyc.setNation("N/A");
+            kyc.setStatus("pending");
+            kyc.setRisk("Low");
+            kyc.setLastUpdated(System.currentTimeMillis());
+            kyc.getAuditLogs().add("KYC profile initialized on user registration.");
+            kycRepository.save(kyc);
+
+            // Auto-initialize Compliance record for new client
+            Compliance compliance = new Compliance();
+            compliance.setId("COMP-" + System.currentTimeMillis());
+            compliance.setClientId(clientUser.getId());
+            compliance.setName(clientUser.getFirstName() + " " + clientUser.getLastName());
+            compliance.setType("AML Screening");
+            compliance.setStatus("pending");
+            compliance.setRisk("Low");
+            compliance.setLastUpdated(System.currentTimeMillis());
+            compliance.getAuditLogs().add("AML compliance monitoring initialized on registration.");
+            complianceRepository.save(compliance);
+        }
+
+        // 3. Ensure Onboarding record exists
+        Optional<Onboarding> onboardingOpt = onboardingRepository.findByClientId(clientUser.getId());
+        if (!onboardingOpt.isPresent()) {
+            Onboarding onboarding = new Onboarding();
+            onboarding.setClientId(clientUser.getId());
+            onboarding.setClientEmail(clientUser.getEmail());
+            onboarding.setClientName(clientUser.getFirstName() + " " + clientUser.getLastName());
+            onboarding.setStatus("in_progress");
+            onboarding.setPortalActivated(false);
+            onboarding.getAuditLogs().add("Onboarding initiated on pre-registration submission at " + new Date());
+            onboardingRepository.save(onboarding);
+        }
+
+        // 4. Save the Requirement record (pre-registration application)
+        Optional<Requirement> reqOpt = requirementRepository.findByUserId(clientUser.getId());
+        Requirement requirement;
+        if (reqOpt.isPresent()) {
+            requirement = reqOpt.get();
+            requirement.setData(data);
+            requirement.setStatus("under review");
+            requirement.setUpdatedAt(new Date());
+        } else {
+            requirement = new Requirement(clientUser.getId(), data);
+            requirement.setStatus("under review");
+        }
+        requirementRepository.save(requirement);
+
+        // 5. Notify admin/staff
+        try {
+            notificationService.sendNotification(
+                    "admin",
+                    "New Pre-Registration Submission",
+                    clientUser.getFirstName() + " " + clientUser.getLastName() + " submitted pre-registration requirements.",
+                    "pre-registration",
+                    requirement.getId(),
+                    "Info"
+            );
+        } catch (Exception e) {}
+
+        // 6. Build response
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", requirement.getStatus());
+        response.put("data", requirement.getData());
+        response.put("applicationId", requirement.getId());
+        response.put("email", email);
+        response.put("password", rawPassword);
+        response.put("firstName", firstName);
+        response.put("lastName", lastName);
+        response.put("clientId", clientUser.getId());
+        
+        return ResponseEntity.ok(response);
     }
 }
