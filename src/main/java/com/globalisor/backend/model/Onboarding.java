@@ -40,6 +40,9 @@ public class Onboarding {
     // Audit log
     private List<String> auditLogs = new ArrayList<>();
 
+    // Dynamic steps created from admin
+    private Map<String, OnboardingStep> dynamicSteps = new HashMap<>();
+
     private Long createdAt = System.currentTimeMillis();
     private Long updatedAt = System.currentTimeMillis();
 
