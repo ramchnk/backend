@@ -25,16 +25,15 @@ public class OnboardingConfigController {
     @jakarta.annotation.PostConstruct
     public void init() {
         try {
-            if (repo.count() == 0) {
-                List<OnboardingConfig> defaults = buildDefaultSteps();
-                for (OnboardingConfig step : defaults) {
-                    step.setCreatedBy("System Auto-Seed");
-                    step.setCreatedAt(new Date());
-                    step.setLastUpdatedBy("System Auto-Seed");
-                    step.setLastUpdatedAt(new Date());
-                    step.setHistory(new ArrayList<>());
-                    repo.save(step);
-                }
+            repo.deleteAll();
+            List<OnboardingConfig> defaults = buildDefaultSteps();
+            for (OnboardingConfig step : defaults) {
+                step.setCreatedBy("System Auto-Seed");
+                step.setCreatedAt(new Date());
+                step.setLastUpdatedBy("System Auto-Seed");
+                step.setLastUpdatedAt(new Date());
+                step.setHistory(new ArrayList<>());
+                repo.save(step);
             }
         } catch (Exception e) {
             System.err.println("Failed to auto-seed onboarding configuration: " + e.getMessage());
@@ -269,65 +268,30 @@ public class OnboardingConfigController {
     private List<OnboardingConfig> buildDefaultSteps() {
         List<OnboardingConfig> steps = new ArrayList<>();
 
-        // Step 1 — Verification Details
-        OnboardingConfig s1 = new OnboardingConfig();
-        s1.setId("ob-default-1");
-        s1.setKey("individual_verification");
-        s1.setField("step1IndividualVerification");
-        s1.setTitle("Verification Details");
-        s1.setIcon("user-check");
-        s1.setDescription("Select your shareholder type to start. Upload required documents and verify details.");
-        s1.setDeclaration("I confirm that I am not disqualified from acting as a director under the laws of Singapore.");
-        s1.setSortOrder(0);
-        s1.setStatus("PUBLISHED");
-        s1.setVersion(1);
-        s1.setExtractedFields(List.of("fullName","idNumber","nationality","gender","dateOfBirth",
-                "companyName","uen","dateOfIncorporation","registeredAddress","uboName","uboIdNumber","uboAddress"));
-        s1.setManualFields(List.of(
-                field("shareholderType","Shareholder Type","select",true,false,null,
-                        List.of("Select","Individual Shareholder","Corporate Shareholder"),0),
-                field("fullName","Full Legal Name","text",true,false,null,null,1,"shareholderType","Individual Shareholder"),
-                field("idNumber","NRIC / FIN","text",true,false,null,null,2,"shareholderType","Individual Shareholder"),
-                field("nationality","Nationality","nationality",true,false,null,null,3,"shareholderType","Individual Shareholder"),
-                field("gender","Gender","select",true,false,null,List.of("Select","Male","Female","Other"),4,"shareholderType","Individual Shareholder"),
-                field("dateOfBirth","Date of Birth","date",true,false,null,null,5,"shareholderType","Individual Shareholder"),
-                field("residentialAddress","Residential Address","text",true,false,null,null,6,"shareholderType","Individual Shareholder"),
-                field("email","Email Address","email",true,false,null,null,7,"shareholderType","Individual Shareholder"),
-                field("mobile","Mobile Number","phone",true,false,null,null,8,"shareholderType","Individual Shareholder"),
-                
-                field("companyName","Company Name","text",true,false,null,null,9,"shareholderType","Corporate Shareholder"),
-                field("uen","UEN / Reg Number","text",true,false,null,null,10,"shareholderType","Corporate Shareholder"),
-                field("dateOfIncorporation","Date of Incorporation","date",true,false,null,null,11,"shareholderType","Corporate Shareholder"),
-                field("registeredAddress","Registered Address","text",true,false,null,null,12,"shareholderType","Corporate Shareholder"),
-                field("email","Email Address","email",true,false,null,null,13,"shareholderType","Corporate Shareholder"),
-                field("mobile","Mobile Number","phone",true,false,null,null,14,"shareholderType","Corporate Shareholder"),
-                field("uboName","UBO - Full Name","text",true,false,null,null,15,"shareholderType","Corporate Shareholder"),
-                field("uboIdNumber","UBO - NRIC / FIN","text",true,false,null,null,16,"shareholderType","Corporate Shareholder"),
-                field("uboAddress","UBO - Address","text",true,false,null,null,17,"shareholderType","Corporate Shareholder")
-        ));
-        s1.setRequiredDocs(List.of(
-                doc("nric","NRIC / FIN (Front & Back)",true,true,
-                        List.of("fullName","idNumber","nationality","gender","dateOfBirth"),"shareholderType","Individual Shareholder"),
-                doc("address_proof","Address Proof (Utility/Mobile/Bank Bill — within 3 months)",true,false,null,"shareholderType","Individual Shareholder"),
-                doc("bizfile","Bizfile of the Company",true,true,
-                        List.of("companyName","uen","dateOfIncorporation","registeredAddress"),"shareholderType","Corporate Shareholder"),
-                doc("constitution","Constitution / M&AA",true,false,null,"shareholderType","Corporate Shareholder"),
-                doc("ubo_nric","UBO - NRIC / FIN",true,true,
-                        List.of("uboName","uboIdNumber"),"shareholderType","Corporate Shareholder"),
-                doc("ubo_address_proof","UBO - Address Proof",true,true,
-                        List.of("uboAddress","email","mobile"),"shareholderType","Corporate Shareholder")
-        ));
-        steps.add(s1);
+        // Step 0 — Document Checklist
+        OnboardingConfig sChecklist = new OnboardingConfig();
+        sChecklist.setId("ob-default-0");
+        sChecklist.setKey("document_checklist");
+        sChecklist.setField("stepDocumentChecklist");
+        sChecklist.setTitle("Document Checklist");
+        sChecklist.setIcon("clipboard-list");
+        sChecklist.setDescription("Please review the document checklist based on pre-registration selections before starting onboarding.");
+        sChecklist.setSortOrder(0);
+        sChecklist.setStatus("PUBLISHED");
+        sChecklist.setVersion(1);
+        sChecklist.setManualFields(new ArrayList<>());
+        sChecklist.setRequiredDocs(new ArrayList<>());
+        steps.add(sChecklist);
 
-        // Step 2 — Director Details
+        // Step 1 — Director Details
         OnboardingConfig s2 = new OnboardingConfig();
         s2.setId("ob-default-2");
         s2.setKey("director_details");
         s2.setField("step2DirectorDetails");
         s2.setTitle("Director Details");
         s2.setIcon("briefcase");
-        s2.setDescription("Auto-populated from your NRIC/FIN. Please verify all information is correct.");
-        s2.setDeclaration("I confirm that I am not disqualified from acting as a director under the laws of Singapore.");
+        s2.setDescription("Please upload NRIC/FIN and Address Proof, verify and confirm details.");
+        s2.setDeclaration("");
         s2.setSortOrder(1);
         s2.setStatus("PUBLISHED");
         s2.setVersion(1);
@@ -342,10 +306,28 @@ public class OnboardingConfigController {
                 field("residentialAddress","Residential Address","text",true,false,null,null,5),
                 field("email","Email","email",true,false,null,null,6),
                 field("mobile","Mobile Number","phone",true,false,null,null,7),
-                field("directorConsent","I consent to act as a director of the company.","checkbox",true,false,null,null,8)
+                field("disqualificationAcknowledge","I confirm that I am not disqualified from acting as a director under the laws of Singapore.","checkbox",true,false,null,null,8)
         ));
-        s2.setRequiredDocs(new ArrayList<>());
+        s2.setRequiredDocs(List.of(
+                doc("nric","NRIC / FIN",true,true,List.of("fullName","idNumber","nationality","gender","dateOfBirth")),
+                doc("address_proof","Utility Bill / Bank Statement / Mobile Bill",true,true,List.of("residentialAddress"))
+        ));
         steps.add(s2);
+
+        // Step 2 — Share Capital Details
+        OnboardingConfig sShare = new OnboardingConfig();
+        sShare.setId("ob-default-share-capital");
+        sShare.setKey("share_capital");
+        sShare.setField("stepShareCapital");
+        sShare.setTitle("Share Capital Details");
+        sShare.setIcon("coins");
+        sShare.setDescription("Configure corporate share capital structure and allocate shares to shareholders.");
+        sShare.setSortOrder(2);
+        sShare.setStatus("PUBLISHED");
+        sShare.setVersion(1);
+        sShare.setManualFields(new ArrayList<>());
+        sShare.setRequiredDocs(new ArrayList<>());
+        steps.add(sShare);
 
         // Step 3 — Individual Shareholder
         OnboardingConfig s3 = new OnboardingConfig();
@@ -355,7 +337,7 @@ public class OnboardingConfigController {
         s3.setTitle("Individual Shareholder Details");
         s3.setIcon("users");
         s3.setDescription("Capture individual shareholder information. Ownership ≥ 25% will automatically trigger UBO and AML/KYC screening.");
-        s3.setSortOrder(2);
+        s3.setSortOrder(3);
         s3.setStatus("PUBLISHED");
         s3.setVersion(1);
         s3.setDynamicSection(true);
@@ -378,7 +360,10 @@ public class OnboardingConfigController {
                 field("ownershipPercentage","Ownership % (auto-calculated)","number",false,true,null,null,14),
                 field("uboDeclaration","Is the Shareholder the Ultimate Beneficial Owner?","select",true,false,null,List.of("Select","No","Yes"),15)
         ));
-        s3.setRequiredDocs(List.of(doc("nric","NRIC / FIN",true,true,List.of("fullName","idNumber"))));
+        s3.setRequiredDocs(List.of(
+                doc("nric","NRIC / FIN",true,true,List.of("fullName","idNumber")),
+                doc("address_proof","Address Proof (Utility Bill / Bank Statement / Mobile Bill)",true,true,List.of("residentialAddress"))
+        ));
         steps.add(s3);
 
         // Step 4 — Corporate Shareholder
@@ -388,38 +373,26 @@ public class OnboardingConfigController {
         s4.setField("step4CorporateShareholder");
         s4.setTitle("Corporate Shareholder Details");
         s4.setIcon("building-2");
-        s4.setDescription("Upload Bizfile and supporting documents for OCR extraction of company details.");
-        s4.setSortOrder(3);
+        s4.setDescription("Upload Bizfile and constitution for OCR extraction of company details.");
+        s4.setSortOrder(4);
         s4.setStatus("PUBLISHED");
         s4.setVersion(1);
         s4.setDynamicSection(true);
         s4.setDynamicCountKey("corporateShareholderCount");
-        s4.setExtractedFields(List.of("companyName","uen","dateOfIncorporation","registeredAddress",
-                "principalActivity","countryOfIncorporation","companyType","companyStatus",
-                "formerName","dateOfChangeOfName","auditFirm"));
+        s4.setExtractedFields(List.of("companyName","uen","dateOfIncorporation","registeredAddress"));
         s4.setManualFields(List.of(
                 field("companyName","Company Name","text",true,false,null,null,0),
                 field("uen","UEN / Reg Number","text",true,false,null,null,1),
                 field("dateOfIncorporation","Date of Incorporation","date",true,false,null,null,2),
                 field("registeredAddress","Registered Address","text",true,false,null,null,3),
-                field("principalActivity","Principal Activity","text",false,false,null,null,4),
-                field("countryOfIncorporation","Country of Incorporation","text",true,false,null,null,5),
-                field("companyType","Company Type","select",true,false,null,
-                        List.of("Select","PRIVATE COMPANY LIMITED BY SHARES","PUBLIC COMPANY LIMITED BY SHARES",
-                                "SOLE PROPRIETORSHIP","PARTNERSHIP","OTHER"),6),
-                field("companyStatus","Status of Company","text",false,false,null,null,7),
-                field("formerName","Former Name if any","text",false,false,null,null,8),
-                field("dateOfChangeOfName","Date of Change of Name","date",false,false,null,null,9),
-                field("auditFirm","Audit Firm","text",false,false,null,null,10),
-                field("fye","Financial Year End (FYE)","text",false,false,null,null,11),
-                field("totalShares","Total Number of Shares of the Company","number",true,false,null,null,12),
-                field("totalShareCapital","Total Share Capital Amount of the Company","number",true,false,null,null,13),
-                field("currency","Currency","select",true,false,null,List.of("SGD","USD"),14),
-                field("shareClass","Share Class","select",true,false,null,List.of("Select","Ordinary","Preference"),15),
-                field("numberOfShares","Number of Shares","number",true,false,null,null,16),
-                field("shareCapitalAmount","Share Capital Amount","number",true,false,null,null,17),
-                field("ownershipPercentage","Ownership % (auto-calculated)","number",false,true,null,null,18),
-                field("uboDeclaration","Is the Shareholder the Ultimate Beneficial Owner?","select",true,false,null,List.of("No","Yes"),19)
+                field("totalShares","Total Number of Shares of the Company","number",true,false,null,null,4),
+                field("totalShareCapital","Total Share Capital Amount of the Company","number",true,false,null,null,5),
+                field("currency","Currency","select",true,false,null,List.of("SGD","USD"),6),
+                field("shareClass","Share Class","select",true,false,null,List.of("Select","Ordinary","Preference"),7),
+                field("numberOfShares","Number of Shares","number",true,false,null,null,8),
+                field("shareCapitalAmount","Share Capital Amount","number",true,false,null,null,9),
+                field("ownershipPercentage","Ownership % (auto-calculated)","number",false,true,null,null,10),
+                field("uboDeclaration","Is the Shareholder the Ultimate Beneficial Owner?","select",true,false,null,List.of("No","Yes"),11)
         ));
         s4.setRequiredDocs(List.of(
                 doc("bizfile","Bizfile (ACRA)",true,true,List.of("companyName","uen","dateOfIncorporation","registeredAddress")),
@@ -429,35 +402,7 @@ public class OnboardingConfigController {
         ));
         steps.add(s4);
 
-        // Step 5 — UBO
-        OnboardingConfig s5 = new OnboardingConfig();
-        s5.setId("ob-default-5");
-        s5.setKey("ubo");
-        s5.setField("step5UBO");
-        s5.setTitle("Ultimate Beneficial Owner (UBO)");
-        s5.setIcon("shield-check");
-        s5.setDescription("UBO verification triggers AML Screening, KYC Verification, and Sanctions Check automatically.");
-        s5.setSortOrder(4);
-        s5.setStatus("PUBLISHED");
-        s5.setVersion(1);
-        s5.setAutoChecks(List.of("AML Screening","KYC Verification","Sanctions Check"));
-        s5.setManualFields(List.of(
-                field("fullName","Full Name","text",true,false,null,null,0),
-                field("idNumber","NRIC / FIN","text",true,false,null,null,1),
-                field("nationality","Nationality","nationality",true,false,null,null,2),
-                field("dateOfBirth","Date of Birth","date",true,false,null,null,3),
-                field("residentialAddress","Residential Address","text",true,false,null,null,4),
-                field("email","Email Address","email",true,false,null,null,5),
-                field("mobile","Mobile Number","phone",true,false,null,null,6),
-                field("ownershipPercentage","Ownership Percentage (%)","number",true,false,null,null,7)
-        ));
-        s5.setRequiredDocs(List.of(
-                doc("nric","NRIC / FIN",true,true,List.of("fullName","idNumber","nationality","dateOfBirth")),
-                doc("address_proof","Address Proof",true,false,null)
-        ));
-        steps.add(s5);
-
-        // Step 6 — Corporate Representative
+        // Step 5 — Corporate Representative
         OnboardingConfig s6 = new OnboardingConfig();
         s6.setId("ob-default-6");
         s6.setKey("corporate_rep");
@@ -474,21 +419,18 @@ public class OnboardingConfigController {
                 field("idNumber","NRIC / FIN","text",true,false,null,null,1),
                 field("nationality","Nationality","nationality",true,false,null,null,2),
                 field("dateOfBirth","Date of Birth","date",true,false,null,null,3),
-                field("designation","Designation / Job Title","text",false,false,null,null,4),
-                field("authorizationType","Authorization Type","select",true,false,null,
-                        List.of("Board Resolution","Power of Attorney","Letter of Authorization","Other"),5),
-                field("residentialAddress","Residential Address","text",true,false,null,null,6),
-                field("email","Email Address","email",true,false,null,null,7),
-                field("mobile","Mobile Number","phone",true,false,null,null,8)
+                field("residentialAddress","Residential Address","text",true,false,null,null,4),
+                field("email","Email Address","email",true,false,null,null,5),
+                field("mobile","Mobile Number","phone",true,false,null,null,6)
         ));
         s6.setRequiredDocs(List.of(
                 doc("nric","NRIC / FIN",true,true,List.of("fullName","idNumber","nationality","dateOfBirth")),
                 doc("address_proof","Address Proof",true,false,null),
-                doc("auth_document","Proof of Authorization (Board Resolution / Letter of Authorization)",true,false,null)
+                doc("auth_document","Proof of Authorization (Board Resolution / Letter of Authorization)",false,false,null)
         ));
         steps.add(s6);
 
-        // Step 7 — Final Declaration
+        // Step 6 — Final Declaration
         OnboardingConfig s7 = new OnboardingConfig();
         s7.setId("ob-default-7");
         s7.setKey("final_declaration");
@@ -496,13 +438,14 @@ public class OnboardingConfigController {
         s7.setTitle("Final Declaration & Consent");
         s7.setIcon("file-signature");
         s7.setDescription("Please review all details and declare final consent before submitting your application.");
-        s7.setDeclaration("I understand that providing false or misleading information may lead to the rejection of this application.");
+        s7.setDeclaration("");
         s7.setSortOrder(6);
         s7.setStatus("PUBLISHED");
         s7.setVersion(1);
         s7.setManualFields(List.of(
                 field("declarationAgreed","I confirm that all the details provided are true and accurate to the best of my knowledge.","checkbox",true,false,null,null,0),
-                field("consentAgreed","I consent to Globalisor conducting compliance, AML/KYC screening, and verification checks.","checkbox",true,false,null,null,1)
+                field("consentAgreed","I consent to Globalisor conducting compliance, AML/KYC screening, and verification checks.","checkbox",true,false,null,null,1),
+                field("fye","Financial Year End (FYE)","select",true,false,null,List.of("Select","31 Dec","31 Mar","30 Jun","30 Sep"),2)
         ));
         s7.setRequiredDocs(new ArrayList<>());
         steps.add(s7);
