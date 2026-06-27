@@ -6,6 +6,8 @@ import com.globalisor.backend.model.User;
 import com.globalisor.backend.repository.OnboardingRepository;
 import com.globalisor.backend.repository.OnboardingConfigRepository;
 import com.globalisor.backend.repository.UserRepository;
+import com.globalisor.backend.repository.RequirementRepository;
+import com.globalisor.backend.model.Requirement;
 import com.globalisor.backend.service.NotificationService;
 import com.globalisor.backend.websocket.ChatWebSocketHandler;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +27,7 @@ public class OnboardingController {
     @Autowired UserRepository userRepository;
     @Autowired NotificationService notificationService;
     @Autowired ChatWebSocketHandler chatWebSocketHandler;
+    @Autowired RequirementRepository requirementRepository;
 
     // GET all onboardings (admin)
     @GetMapping
@@ -36,13 +39,163 @@ public class OnboardingController {
     @GetMapping("/client/{clientId}")
     public ResponseEntity<?> getByClientId(@PathVariable String clientId) {
         Optional<Onboarding> opt = onboardingRepository.findByClientId(clientId);
-        if (opt.isPresent()) return ResponseEntity.ok(opt.get());
-        // Return empty shell if not yet created
-        Map<String, Object> empty = new HashMap<>();
-        empty.put("exists", false);
-        empty.put("portalActivated", false);
-        empty.put("status", "not_started");
-        return ResponseEntity.ok(empty);
+        Onboarding ob;
+        boolean isNew = false;
+        if (opt.isPresent()) {
+            ob = opt.get();
+        } else {
+            ob = new Onboarding();
+            ob.setClientId(clientId);
+            ob.setStatus("in_progress");
+            Optional<com.globalisor.backend.model.User> uOpt = userRepository.findById(clientId);
+            if (uOpt.isPresent()) {
+                com.globalisor.backend.model.User u = uOpt.get();
+                ob.setClientEmail(u.getEmail());
+                ob.setClientName((u.getFirstName() + " " + u.getLastName()).trim());
+            }
+            ob.getAuditLogs().add("Onboarding initiated automatically at " + new Date());
+            isNew = true;
+        }
+
+        // Fetch requirement data for this client
+        Optional<Requirement> reqOpt = requirementRepository.findByUserId(clientId);
+        if (reqOpt.isPresent()) {
+            Requirement requirement = reqOpt.get();
+            Map<String, Object> reqData = requirement.getData();
+            if (reqData != null) {
+                boolean changed = false;
+
+                // --- Sync Directors ---
+                List<?> reqDirs = (List<?>) reqData.get("directors");
+                if (reqDirs == null) reqDirs = new ArrayList<>();
+                Onboarding.OnboardingStep dirStep = ob.getStep2DirectorDetails();
+                if (dirStep.getData() == null) dirStep.setData(new HashMap<>());
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> currentDirs = (List<Map<String, Object>>) dirStep.getData().get("list");
+                if (currentDirs == null) currentDirs = new ArrayList<>();
+
+                List<Map<String, Object>> newList = new ArrayList<>();
+                for (int i = 0; i < reqDirs.size(); i++) {
+                    Map<String, Object> existing = i < currentDirs.size() ? currentDirs.get(i) : new HashMap<>();
+                    Object rDirObj = reqDirs.get(i);
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> rDir = (rDirObj instanceof Map) ? (Map<String, Object>) rDirObj : new HashMap<>();
+
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("fullName", getMergedValue(existing, "fullName", rDir, "name"));
+                    item.put("idNumber", getMergedValue(existing, "idNumber", rDir, "idNum"));
+                    item.put("nationality", getMergedValue(existing, "nationality", rDir, "nation"));
+                    item.put("dateOfBirth", getMergedValue(existing, "dateOfBirth", rDir, "dob"));
+                    item.put("residentialAddress", getMergedValue(existing, "residentialAddress", rDir, "addr"));
+                    item.put("email", getMergedValue(existing, "email", rDir, "email"));
+                    item.put("mobile", getMergedValue(existing, "mobile", rDir, "phone"));
+                    item.put("disqualificationAcknowledge", getMergedObject(existing, "disqualificationAcknowledge", rDir, "disqualificationAcknowledge", false));
+                    newList.add(item);
+                }
+                if (newList.isEmpty()) newList.add(new HashMap<>());
+                if (!newList.equals(currentDirs)) {
+                    dirStep.getData().put("list", newList);
+                    changed = true;
+                }
+
+                // --- Sync Shareholders ---
+                List<?> reqShs = (List<?>) reqData.get("shareholders");
+                if (reqShs == null) reqShs = new ArrayList<>();
+                List<Map<String, Object>> reqInds = new ArrayList<>();
+                List<Map<String, Object>> reqCorps = new ArrayList<>();
+                for (Object shObj : reqShs) {
+                    if (shObj instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> sh = (Map<String, Object>) shObj;
+                        if ("individual".equals(sh.get("type"))) {
+                            reqInds.add(sh);
+                        } else if ("corporate".equals(sh.get("type"))) {
+                            reqCorps.add(sh);
+                        }
+                    }
+                }
+
+                // Sync Individual Shareholders
+                Onboarding.OnboardingStep indStep = ob.getStep3IndividualShareholder();
+                if (indStep.getData() == null) indStep.setData(new HashMap<>());
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> currentInds = (List<Map<String, Object>>) indStep.getData().get("list");
+                if (currentInds == null) currentInds = new ArrayList<>();
+
+                List<Map<String, Object>> newIndList = new ArrayList<>();
+                for (int i = 0; i < reqInds.size(); i++) {
+                    Map<String, Object> existing = i < currentInds.size() ? currentInds.get(i) : new HashMap<>();
+                    Map<String, Object> rInd = reqInds.get(i);
+
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("sameAsDirector", getMergedObject(existing, "sameAsDirector", rInd, "sameAsDirector", false));
+                    item.put("fullName", getMergedValue(existing, "fullName", rInd, "name"));
+                    item.put("idNumber", getMergedValue(existing, "idNumber", rInd, "idNum"));
+                    item.put("nationality", getMergedValue(existing, "nationality", rInd, "nation"));
+                    item.put("dateOfBirth", getMergedValue(existing, "dateOfBirth", rInd, "dob"));
+                    item.put("residentialAddress", getMergedValue(existing, "residentialAddress", rInd, "addr"));
+                    item.put("email", getMergedValue(existing, "email", rInd, "email"));
+                    item.put("mobile", getMergedValue(existing, "mobile", rInd, "phone"));
+                    item.put("totalShares", getMergedValue(existing, "totalShares", rInd, "totalShares"));
+                    item.put("totalShareCapital", getMergedValue(existing, "totalShareCapital", rInd, "totalShareCapital"));
+                    item.put("currency", getMergedValue(existing, "currency", rInd, "currency").isEmpty() ? "Select" : getMergedValue(existing, "currency", rInd, "currency"));
+                    item.put("shareClass", getMergedValue(existing, "shareClass", rInd, "shareClass").isEmpty() ? "Select" : getMergedValue(existing, "shareClass", rInd, "shareClass"));
+                    item.put("numberOfShares", getMergedValue(existing, "numberOfShares", rInd, "shares"));
+                    item.put("shareCapitalAmount", getMergedValue(existing, "shareCapitalAmount", rInd, "percent"));
+                    item.put("ownershipPercentage", getMergedValue(existing, "ownershipPercentage", rInd, "ownershipPercentage"));
+                    item.put("uboDeclaration", getMergedValue(existing, "uboDeclaration", rInd, "uboDeclaration").isEmpty() ? "Select" : getMergedValue(existing, "uboDeclaration", rInd, "uboDeclaration"));
+                    newIndList.add(item);
+                }
+                if (newIndList.isEmpty()) newIndList.add(new HashMap<>());
+                if (!newIndList.equals(currentInds)) {
+                    indStep.getData().put("list", newIndList);
+                    changed = true;
+                }
+
+                // Sync Corporate Shareholders
+                Onboarding.OnboardingStep corpStep = ob.getStep4CorporateShareholder();
+                if (corpStep.getData() == null) corpStep.setData(new HashMap<>());
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> currentCorps = (List<Map<String, Object>>) corpStep.getData().get("list");
+                if (currentCorps == null) currentCorps = new ArrayList<>();
+
+                List<Map<String, Object>> newCorpList = new ArrayList<>();
+                for (int i = 0; i < reqCorps.size(); i++) {
+                    Map<String, Object> existing = i < currentCorps.size() ? currentCorps.get(i) : new HashMap<>();
+                    Map<String, Object> rCorp = reqCorps.get(i);
+
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("companyName", getMergedValue(existing, "companyName", rCorp, "name"));
+                    item.put("uen", getMergedValue(existing, "uen", rCorp, "regNum"));
+                    item.put("registeredAddress", getMergedValue(existing, "registeredAddress", rCorp, "addr"));
+                    item.put("countryOfIncorporation", getMergedValue(existing, "countryOfIncorporation", rCorp, "regPlace"));
+                    item.put("dateOfIncorporation", getMergedValue(existing, "dateOfIncorporation", rCorp, "regDate"));
+                    item.put("totalShares", getMergedValue(existing, "totalShares", rCorp, "totalShares"));
+                    item.put("totalShareCapital", getMergedValue(existing, "totalShareCapital", rCorp, "totalShareCapital"));
+                    item.put("currency", getMergedValue(existing, "currency", rCorp, "currency").isEmpty() ? "Select" : getMergedValue(existing, "currency", rCorp, "currency"));
+                    item.put("shareClass", getMergedValue(existing, "shareClass", rCorp, "shareClass").isEmpty() ? "Select" : getMergedValue(existing, "shareClass", rCorp, "shareClass"));
+                    item.put("numberOfShares", getMergedValue(existing, "numberOfShares", rCorp, "shares"));
+                    item.put("shareCapitalAmount", getMergedValue(existing, "shareCapitalAmount", rCorp, "percent"));
+                    item.put("ownershipPercentage", getMergedValue(existing, "ownershipPercentage", rCorp, "ownershipPercentage"));
+                    item.put("uboDeclaration", getMergedValue(existing, "uboDeclaration", rCorp, "uboDeclaration").isEmpty() ? "No" : getMergedValue(existing, "uboDeclaration", rCorp, "uboDeclaration"));
+                    newCorpList.add(item);
+                }
+                if (newCorpList.isEmpty()) newCorpList.add(new HashMap<>());
+                if (!newCorpList.equals(currentCorps)) {
+                    corpStep.getData().put("list", newCorpList);
+                    changed = true;
+                }
+
+                if (changed || isNew) {
+                    ob.setUpdatedAt(System.currentTimeMillis());
+                    ob = onboardingRepository.save(ob);
+                }
+            }
+        } else if (isNew) {
+            ob = onboardingRepository.save(ob);
+        }
+
+        return ResponseEntity.ok(ob);
     }
 
     // GET portal activation status
@@ -395,5 +548,39 @@ public class OnboardingController {
         } else {
             ob.setStatus("in_progress");
         }
+    }
+
+    private String getMergedValue(Map<String, Object> existing, String existingKey, Map<String, Object> source, String sourceKey) {
+        if (existing != null && existing.containsKey(existingKey)) {
+            Object v = existing.get(existingKey);
+            if (v != null && !v.toString().trim().isEmpty()) {
+                return v.toString();
+            }
+        }
+        if (source != null && source.containsKey(sourceKey)) {
+            Object v = source.get(sourceKey);
+            if (v != null) {
+                return v.toString();
+            }
+        }
+        return "";
+    }
+
+    private Object getMergedObject(Map<String, Object> existing, String existingKey, Map<String, Object> source, String sourceKey, Object defaultVal) {
+        if (existing != null && existing.containsKey(existingKey)) {
+            Object v = existing.get(existingKey);
+            if (v != null) {
+                if (v instanceof String && ((String) v).trim().isEmpty()) {
+                    // skip empty string fallback
+                } else {
+                    return v;
+                }
+            }
+        }
+        if (source != null && source.containsKey(sourceKey)) {
+            Object v = source.get(sourceKey);
+            if (v != null) return v;
+        }
+        return defaultVal;
     }
 }
