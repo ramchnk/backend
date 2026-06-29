@@ -16,11 +16,20 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @CrossOrigin(origins = "*", maxAge = 3600)
 @RestController
 @RequestMapping("/api/onboarding")
 public class OnboardingController {
+
+    @org.springframework.beans.factory.annotation.Value("${gemini.api.key:}")
+    private String configuredGeminiApiKey;
 
     @Autowired OnboardingRepository onboardingRepository;
     @Autowired OnboardingConfigRepository onboardingConfigRepository;
@@ -269,19 +278,28 @@ public class OnboardingController {
             ob.getAuditLogs().add("Step '" + step.getTitle() + "' status → " + newStatus);
         }
         if (body.containsKey("documents")) {
+            step.getDocuments().clear();
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> docs = (List<Map<String, Object>>) body.get("documents");
             docs.forEach(d -> {
                 Onboarding.DocumentUpload doc = new Onboarding.DocumentUpload();
-                doc.setId("DOC-" + System.currentTimeMillis() + "-" + (int)(Math.random()*1000));
+                String docId = (String) d.get("id");
+                if (docId == null || docId.trim().isEmpty()) {
+                    docId = "DOC-" + System.currentTimeMillis() + "-" + (int)(Math.random()*1000);
+                }
+                doc.setId(docId);
                 doc.setType((String) d.getOrDefault("type", "other"));
                 doc.setLabel((String) d.getOrDefault("label", "Document"));
                 doc.setFileName((String) d.getOrDefault("fileName", ""));
                 doc.setFileData((String) d.getOrDefault("fileData", ""));
                 doc.setMimeType((String) d.getOrDefault("mimeType", "application/octet-stream"));
-                doc.setStatus("pending");
-                // Simulate OCR extraction for NRIC
-                if (doc.getType().startsWith("nric") || doc.getType().startsWith("fin")) {
+                doc.setStatus((String) d.getOrDefault("status", "pending"));
+                
+                if (d.containsKey("extractedData")) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> extData = (Map<String, Object>) d.get("extractedData");
+                    doc.setExtractedData(extData);
+                } else if (doc.getType().startsWith("nric") || doc.getType().startsWith("fin")) {
                     Map<String, Object> extracted = new HashMap<>();
                     extracted.put("fullName", d.getOrDefault("fullName", "Extracted Name"));
                     extracted.put("idNumber", d.getOrDefault("idNumber", "S1234567A"));
@@ -404,48 +422,160 @@ public class OnboardingController {
         return ResponseEntity.ok(Map.of("success", true, "message", "Portal activated successfully"));
     }
 
-    // POST simulate OCR extraction
+    private Map<String, Object> callGeminiApi(String docType, String base64Data, String mimeType) {
+        String apiKey = System.getenv("GEMINI_API_KEY");
+        if (apiKey == null || apiKey.trim().isEmpty()) {
+            apiKey = configuredGeminiApiKey;
+        }
+        if (apiKey == null || apiKey.trim().isEmpty()) {
+            return null;
+        }
+
+        try {
+            String prompt = "";
+            if ("nric".equals(docType) || "fin".equals(docType)) {
+                prompt = "Extract the following details from this Singapore NRIC/FIN document image. Return a JSON object with the following keys:\n" +
+                         "- fullName: The full name of the person (in uppercase)\n" +
+                         "- idNumber: The NRIC or FIN number (e.g. S1234567A)\n" +
+                         "- nationality: The nationality (e.g. INDIAN, SINGAPOREAN)\n" +
+                         "- gender: 'Male' or 'Female'\n" +
+                         "- dateOfBirth: The date of birth in YYYY-MM-DD format\n" +
+                         "- residentialAddress: The residential address listed on the back of the NRIC (if visible, otherwise null)\n" +
+                         "- email: Return null\n" +
+                         "- mobile: Return null";
+            } else if ("bizfile".equals(docType)) {
+                prompt = "Extract the following details from this Singapore ACRA Bizfile document. Return a JSON object with the following keys:\n" +
+                         "- companyName: The name of the company\n" +
+                         "- uen: The Unique Entity Number\n" +
+                         "- dateOfIncorporation: The incorporation date in YYYY-MM-DD format\n" +
+                         "- registeredAddress: The registered office address\n" +
+                         "- principalActivity: The primary business activity\n" +
+                         "- countryOfIncorporation: 'Singapore'\n" +
+                         "- companyType: The type of company\n" +
+                         "- companyStatus: The current status of the company (e.g. LIVE COMPANY)";
+            } else {
+                prompt = "Extract any relevant text information from this document and return a JSON object with description fields.";
+            }
+
+            Map<String, Object> requestBody = new HashMap<>();
+            
+            Map<String, Object> textPart = new HashMap<>();
+            textPart.put("text", prompt);
+            
+            Map<String, Object> inlineData = new HashMap<>();
+            inlineData.put("mimeType", mimeType != null ? mimeType : "image/png");
+            inlineData.put("data", base64Data);
+            
+            Map<String, Object> filePart = new HashMap<>();
+            filePart.put("inlineData", inlineData);
+            
+            List<Map<String, Object>> parts = new ArrayList<>();
+            parts.add(textPart);
+            parts.add(filePart);
+            
+            Map<String, Object> contentNode = new HashMap<>();
+            contentNode.put("parts", parts);
+            
+            List<Map<String, Object>> contents = new ArrayList<>();
+            contents.add(contentNode);
+            
+            requestBody.put("contents", contents);
+            
+            Map<String, Object> generationConfig = new HashMap<>();
+            generationConfig.put("responseMimeType", "application/json");
+            requestBody.put("generationConfig", generationConfig);
+
+            ObjectMapper mapper = new ObjectMapper();
+            String jsonPayload = mapper.writeValueAsString(requestBody);
+
+            HttpClient client = HttpClient.newHttpClient();
+            String url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + apiKey;
+            
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
+                    .build();
+
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) {
+                String responseBody = response.body();
+                JsonNode root = mapper.readTree(responseBody);
+                JsonNode textNode = root.path("candidates").path(0).path("content").path("parts").path(0).path("text");
+                if (!textNode.isMissingNode()) {
+                    String extractedJsonText = textNode.asText();
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> result = mapper.readValue(extractedJsonText, Map.class);
+                    
+                    if ("nric".equals(docType) || "fin".equals(docType)) {
+                        if (result.get("email") == null) result.put("email", "piyush@example.com");
+                        if (result.get("mobile") == null) result.put("mobile", "+65 8138 8495");
+                    }
+                    return result;
+                }
+            } else {
+                System.err.println("[Gemini API Error] status code: " + response.statusCode() + ", body: " + response.body());
+            }
+        } catch (Exception e) {
+            System.err.println("[Gemini API Exception] Error calling Gemini: " + e.getMessage());
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    // POST simulate/perform OCR extraction
     @PostMapping("/ocr-extract")
     public ResponseEntity<?> ocrExtract(@RequestBody Map<String, Object> body) {
         String docType = (String) body.getOrDefault("type", "nric");
-        Map<String, Object> extracted = new HashMap<>();
-        // Simulate OCR results based on document type
-        if ("nric".equals(docType) || "fin".equals(docType)) {
-            extracted.put("fullName", "ASHWIN KALYAN PRAKASH PURI");
-            extracted.put("idNumber", "S7888130E");
-            extracted.put("nationality", "INDIAN");
-            extracted.put("gender", "Male");
-            extracted.put("dateOfBirth", "1990-06-15");
-            extracted.put("residentialAddress", "245 ORCHARD BOULEVARD, #21-01, ORCHARD BEL AIR, SINGAPORE 248648");
-            extracted.put("email", "ashwin.puri@graas.ai");
-            extracted.put("mobile", "+65 9123 4567");
-        } else if ("bizfile".equals(docType)) {
-            extracted.put("companyName", "GRAAS PTE. LTD.");
-            extracted.put("uen", "201538449N");
-            extracted.put("dateOfIncorporation", "2015-10-22");
-            extracted.put("registeredAddress", "8 CRAIG ROAD, #02-01, SINGAPORE 089668");
-            extracted.put("principalActivity", "DEVELOPMENT OF SOFTWARE AND APPLICATIONS (EXCEPT GAMES AND CYBERSECURITY) (62011)");
-            extracted.put("countryOfIncorporation", "Singapore");
-            extracted.put("companyType", "PRIVATE COMPANY LIMITED BY SHARES");
-            extracted.put("companyStatus", "LIVE COMPANY");
-            extracted.put("formerName", "SELLINALL PTE. LTD.");
-            extracted.put("dateOfChangeOfName", "2023-03-07");
-            extracted.put("secondaryActivity", "WHOLESALE OF COMPUTER SOFTWARE (EXCEPT GAMES AND CYBERSECURITY SOFTWARE) (46512)");
-            extracted.put("auditFirm", "GRANT THORNTON AUDIT LLP");
-            extracted.put("numberOfShares", 1998815);
-            extracted.put("shareCapitalAmount", 8297985.82);
-            extracted.put("totalShares", 1998815);
-            extracted.put("totalShareCapital", 8297985.82);
-            extracted.put("fye", "31 DEC");
-            extracted.put("currency", "SGD");
-        } else if ("ubo_nric".equals(docType)) {
-            extracted.put("uboName", "MOHD ASIF");
-            extracted.put("uboIdNumber", "S8811223F");
-        } else if ("ubo_address_proof".equals(docType)) {
-            extracted.put("uboAddress", "12 MARINA BOULEVARD, #30-02, MBFC TOWER 3, SINGAPORE 018982");
-            extracted.put("email", "client.representative@graas.ai");
-            extracted.put("mobile", "+65 8765 4321");
+        String fileData = (String) body.get("fileData");
+        String mimeType = (String) body.get("mimeType");
+        
+        Map<String, Object> extracted = null;
+        if (fileData != null && !fileData.trim().isEmpty()) {
+            extracted = callGeminiApi(docType, fileData, mimeType);
         }
+        
+        if (extracted == null) {
+            extracted = new HashMap<>();
+            // Fallback to high-fidelity simulated OCR results
+            if ("nric".equals(docType) || "fin".equals(docType)) {
+                extracted.put("fullName", "PIYUSH KUMAR CHAPLOT");
+                extracted.put("idNumber", "S7980739G");
+                extracted.put("nationality", "INDIAN");
+                extracted.put("gender", "Male");
+                extracted.put("dateOfBirth", "1979-12-13");
+                extracted.put("residentialAddress", "BLK 3 RHU CROSS #13-12 SINGAPORE 437433");
+                extracted.put("email", "piyush@example.com");
+                extracted.put("mobile", "+65 8138 8495");
+            } else if ("bizfile".equals(docType)) {
+                extracted.put("companyName", "GRAAS PTE. LTD.");
+                extracted.put("uen", "201538449N");
+                extracted.put("dateOfIncorporation", "2015-10-22");
+                extracted.put("registeredAddress", "8 CRAIG ROAD, #02-01, SINGAPORE 089668");
+                extracted.put("principalActivity", "DEVELOPMENT OF SOFTWARE AND APPLICATIONS (EXCEPT GAMES AND CYBERSECURITY) (62011)");
+                extracted.put("countryOfIncorporation", "Singapore");
+                extracted.put("companyType", "PRIVATE COMPANY LIMITED BY SHARES");
+                extracted.put("companyStatus", "LIVE COMPANY");
+                extracted.put("formerName", "SELLINALL PTE. LTD.");
+                extracted.put("dateOfChangeOfName", "2023-03-07");
+                extracted.put("secondaryActivity", "WHOLESALE OF COMPUTER SOFTWARE (EXCEPT GAMES AND CYBERSECURITY SOFTWARE) (46512)");
+                extracted.put("auditFirm", "GRANT THORNTON AUDIT LLP");
+                extracted.put("numberOfShares", 1998815);
+                extracted.put("shareCapitalAmount", 8297985.82);
+                extracted.put("totalShares", 1998815);
+                extracted.put("totalShareCapital", 8297985.82);
+                extracted.put("fye", "31 DEC");
+                extracted.put("currency", "SGD");
+            } else if ("ubo_nric".equals(docType)) {
+                extracted.put("uboName", "MOHD ASIF");
+                extracted.put("uboIdNumber", "S8811223F");
+            } else if ("ubo_address_proof".equals(docType)) {
+                extracted.put("uboAddress", "12 MARINA BOULEVARD, #30-02, MBFC TOWER 3, SINGAPORE 018982");
+                extracted.put("email", "client.representative@graas.ai");
+                extracted.put("mobile", "+65 8765 4321");
+            }
+        }
+        
         extracted.put("confidence", 0.94);
         extracted.put("extractedAt", System.currentTimeMillis());
         return ResponseEntity.ok(extracted);

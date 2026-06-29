@@ -10,3 +10,7 @@ globalisor:
   app:
     jwtSecret: globalisorSecretKeyThatIsVeryLongAndSecureEnoughForHS256Algorithm1234567890
     jwtExpirationMs: 86400000
+
+gemini:
+  api:
+    key: "[ENCRYPTION_KEY]"
