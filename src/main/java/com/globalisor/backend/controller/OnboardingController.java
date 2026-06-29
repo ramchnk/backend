@@ -508,8 +508,8 @@ public class OnboardingController {
                     Map<String, Object> result = mapper.readValue(extractedJsonText, Map.class);
                     
                     if ("nric".equals(docType) || "fin".equals(docType)) {
-                        if (result.get("email") == null) result.put("email", "piyush@example.com");
-                        if (result.get("mobile") == null) result.put("mobile", "+65 8138 8495");
+                        result.put("email", "");
+                        result.put("mobile", "");
                     }
                     return result;
                 }
@@ -545,8 +545,8 @@ public class OnboardingController {
                 extracted.put("gender", "Male");
                 extracted.put("dateOfBirth", "1979-12-13");
                 extracted.put("residentialAddress", "BLK 3 RHU CROSS #13-12 SINGAPORE 437433");
-                extracted.put("email", "piyush@example.com");
-                extracted.put("mobile", "+65 8138 8495");
+                extracted.put("email", "");
+                extracted.put("mobile", "");
             } else if ("bizfile".equals(docType)) {
                 extracted.put("companyName", "GRAAS PTE. LTD.");
                 extracted.put("uen", "201538449N");
