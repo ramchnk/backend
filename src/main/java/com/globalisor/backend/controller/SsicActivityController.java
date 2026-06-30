@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 @CrossOrigin(origins = "*", maxAge = 3600)
@@ -130,5 +131,63 @@ public class SsicActivityController {
         activity.setLastUpdatedAt(new Date());
         SsicActivity saved = ssicActivityRepository.save(activity);
         return ResponseEntity.ok(saved);
+    }
+
+    @PostMapping("/import")
+    public ResponseEntity<?> importActivities(@RequestBody Map<String, List<SsicActivity>> payload) {
+        if (payload == null || !payload.containsKey("activities")) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Invalid payload: activities array required"));
+        }
+        List<SsicActivity> imported = payload.get("activities");
+        if (imported == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Invalid payload: activities array required"));
+        }
+
+        int addedCount = 0;
+        int updatedCount = 0;
+
+        String updatedBy = getLoggedInAdminName();
+        Date now = new Date();
+
+        for (SsicActivity item : imported) {
+            if (item.getCode() == null || item.getCode().isEmpty()) {
+                continue;
+            }
+
+            Optional<SsicActivity> existingOpt = ssicActivityRepository.findByCode(item.getCode());
+            if (existingOpt.isPresent()) {
+                SsicActivity existing = existingOpt.get();
+                boolean hasChanges = false;
+
+                if (!Objects.equals(item.getName(), existing.getName())) hasChanges = true;
+                if (!Objects.equals(item.getCategory(), existing.getCategory())) hasChanges = true;
+                if (!Objects.equals(item.getDescription(), existing.getDescription())) hasChanges = true;
+
+                if (hasChanges) {
+                    existing.setName(item.getName());
+                    existing.setCategory(item.getCategory());
+                    existing.setDescription(item.getDescription());
+                    existing.setStatus("DRAFT");
+                    existing.setLastUpdatedBy(updatedBy);
+                    existing.setLastUpdatedAt(now);
+                    ssicActivityRepository.save(existing);
+                    updatedCount++;
+                }
+            } else {
+                SsicActivity newActivity = new SsicActivity();
+                newActivity.setId("ssic-" + System.currentTimeMillis() + "-" + (int)(Math.random() * 1000));
+                newActivity.setCode(item.getCode());
+                newActivity.setName(item.getName());
+                newActivity.setCategory(item.getCategory());
+                newActivity.setDescription(item.getDescription());
+                newActivity.setStatus("DRAFT");
+                newActivity.setLastUpdatedBy(updatedBy);
+                newActivity.setLastUpdatedAt(now);
+                ssicActivityRepository.save(newActivity);
+                addedCount++;
+            }
+        }
+
+        return ResponseEntity.ok(Map.of("success", true, "added", addedCount, "updated", updatedCount));
     }
 }

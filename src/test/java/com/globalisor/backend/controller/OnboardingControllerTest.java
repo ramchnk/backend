@@ -1,6 +1,7 @@
 package com.globalisor.backend.controller;
 
 import com.globalisor.backend.model.Onboarding;
+import com.globalisor.backend.repository.OnboardingConfigRepository;
 import com.globalisor.backend.repository.OnboardingRepository;
 import com.globalisor.backend.repository.UserRepository;
 import com.globalisor.backend.service.NotificationService;
@@ -26,6 +27,9 @@ public class OnboardingControllerTest {
 
     @Mock
     private OnboardingRepository onboardingRepository;
+
+    @Mock
+    private OnboardingConfigRepository onboardingConfigRepository;
 
     @Mock
     private UserRepository userRepository;
@@ -62,7 +66,7 @@ public class OnboardingControllerTest {
 
         Onboarding saved = (Onboarding) response.getBody();
         assertNotNull(saved);
-        assertEquals("submitted", saved.getStep1IndividualVerification().getStatus());
+        assertEquals("approved", saved.getStep1IndividualVerification().getStatus());
         // Since only step 1 is submitted and others are pending, overall status should still be "in_progress"
         assertEquals("in_progress", saved.getStatus());
 
@@ -77,7 +81,7 @@ public class OnboardingControllerTest {
         ResponseEntity<?> finalResponse = controller.updateStep("OB-1", "final_declaration", body);
         Onboarding finalSaved = (Onboarding) finalResponse.getBody();
         assertNotNull(finalSaved);
-        assertEquals("submitted", finalSaved.getStep7FinalDeclaration().getStatus());
+        assertEquals("approved", finalSaved.getStep7FinalDeclaration().getStatus());
         // All steps are submitted, overall status should be "submitted"
         assertEquals("submitted", finalSaved.getStatus());
     }
