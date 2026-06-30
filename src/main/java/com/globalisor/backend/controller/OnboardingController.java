@@ -74,6 +74,29 @@ public class OnboardingController {
             if (reqData != null) {
                 boolean changed = false;
 
+                // --- Sync Share Capital ---
+                Onboarding.OnboardingStep capStep = ob.getStepShareCapital();
+                if (capStep.getData() == null) capStep.setData(new HashMap<>());
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> capCurrencies = (List<Map<String, Object>>) capStep.getData().get("currencies");
+                if (capCurrencies == null) capCurrencies = new ArrayList<>();
+
+                @SuppressWarnings("unchecked")
+                Map<String, Object> reqCapital = (Map<String, Object>) reqData.get("capital");
+                if (reqCapital != null && capCurrencies.isEmpty()) {
+                    Map<String, Object> c = new HashMap<>();
+                    String rCurr = (String) reqCapital.getOrDefault("currency", "SGD");
+                    c.put("currency", rCurr);
+                    c.put("customCurrency", "");
+                    c.put("shareClass", reqCapital.getOrDefault("type", "Ordinary"));
+                    c.put("numberOfShares", String.valueOf(reqCapital.getOrDefault("numShares", "10000")));
+                    c.put("shareCapitalAmount", String.valueOf(reqCapital.getOrDefault("issued", "10000")));
+                    c.put("paidUpShareCapital", String.valueOf(reqCapital.getOrDefault("paidUp", "10000")));
+                    capCurrencies.add(c);
+                    capStep.getData().put("currencies", capCurrencies);
+                    changed = true;
+                }
+
                 // --- Sync Directors ---
                 List<?> reqDirs = (List<?>) reqData.get("directors");
                 if (reqDirs == null) reqDirs = new ArrayList<>();
@@ -433,6 +456,7 @@ public class OnboardingController {
             apiKey = configuredGeminiApiKey;
         }
         if (apiKey == null || apiKey.trim().isEmpty()) {
+            System.err.println("[Gemini OCR] No API key configured. Falling back to mock OCR data.");
             return null;
         }
 
@@ -544,12 +568,14 @@ public class OnboardingController {
             extracted = new HashMap<>();
             // Fallback to high-fidelity simulated OCR results
             if ("nric".equals(docType) || "fin".equals(docType)) {
-                extracted.put("fullName", "PIYUSH KUMAR CHAPLOT");
-                extracted.put("idNumber", "S7980739G");
-                extracted.put("nationality", "INDIAN");
+                int randomId = 1000000 + new Random().nextInt(9000000);
+                String randomNric = "S" + randomId + "G";
+                extracted.put("fullName", "MOCK NAME " + randomId);
+                extracted.put("idNumber", randomNric);
+                extracted.put("nationality", "SINGAPOREAN");
                 extracted.put("gender", "Male");
-                extracted.put("dateOfBirth", "1979-12-13");
-                extracted.put("residentialAddress", "BLK 3 RHU CROSS #13-12 SINGAPORE 437433");
+                extracted.put("dateOfBirth", "1980-01-01");
+                extracted.put("residentialAddress", "BLK 123 Ang Mo Kio Ave 4 #05-67, Singapore 560123");
                 extracted.put("email", "");
                 extracted.put("mobile", "");
             } else if ("bizfile".equals(docType)) {
@@ -572,8 +598,9 @@ public class OnboardingController {
                 extracted.put("fye", "31 DEC");
                 extracted.put("currency", "SGD");
             } else if ("ubo_nric".equals(docType)) {
-                extracted.put("uboName", "MOHD ASIF");
-                extracted.put("uboIdNumber", "S8811223F");
+                int randomId = 1000000 + new Random().nextInt(9000000);
+                extracted.put("uboName", "MOCK UBO " + randomId);
+                extracted.put("uboIdNumber", "S" + randomId + "F");
             } else if ("ubo_address_proof".equals(docType)) {
                 extracted.put("uboAddress", "12 MARINA BOULEVARD, #30-02, MBFC TOWER 3, SINGAPORE 018982");
                 extracted.put("email", "client.representative@graas.ai");

@@ -43,6 +43,16 @@ public class Onboarding {
     // Dynamic steps created from admin
     private Map<String, OnboardingStep> dynamicSteps = new HashMap<>();
 
+    public OnboardingStep getStepShareCapital() {
+        if (this.dynamicSteps == null) {
+            this.dynamicSteps = new HashMap<>();
+        }
+        if (!this.dynamicSteps.containsKey("share_capital")) {
+            this.dynamicSteps.put("share_capital", new OnboardingStep("share_capital", "Share Capital Details"));
+        }
+        return this.dynamicSteps.get("share_capital");
+    }
+
     private Long createdAt = System.currentTimeMillis();
     private Long updatedAt = System.currentTimeMillis();
 
