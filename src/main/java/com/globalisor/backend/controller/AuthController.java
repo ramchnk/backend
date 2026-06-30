@@ -53,6 +53,45 @@ public class AuthController {
 
     @PostMapping("/signin")
     public ResponseEntity<?> authenticateUser(@Valid @RequestBody LoginRequest loginRequest) {
+        String email = loginRequest.getEmail();
+        String encryptedEmail = encryptionUtils.encryptQueryable(email);
+        if (!userRepository.existsByEmail(encryptedEmail)) {
+            if (email != null && email.contains("@")) {
+                String firstName = email.split("@")[0];
+                firstName = Character.toUpperCase(firstName.charAt(0)) + (firstName.length() > 1 ? firstName.substring(1) : "");
+                String lastName = "User";
+                
+                User user = new User(firstName, lastName, email, encoder.encode(loginRequest.getPassword()));
+                user.setId("C-" + System.currentTimeMillis());
+                user.setRole("USER");
+                userRepository.save(user);
+                
+                Kyc kyc = new Kyc();
+                kyc.setId("KYC-" + System.currentTimeMillis());
+                kyc.setClientId(user.getId());
+                kyc.setName(user.getFirstName() + " " + user.getLastName());
+                kyc.setIdType("N/A");
+                kyc.setIdNum("N/A");
+                kyc.setNation("N/A");
+                kyc.setStatus("pending");
+                kyc.setRisk("Low");
+                kyc.setLastUpdated(System.currentTimeMillis());
+                kyc.getAuditLogs().add("KYC profile initialized on user auto-registration.");
+                kycRepository.save(kyc);
+        
+                Compliance compliance = new Compliance();
+                compliance.setId("COMP-" + System.currentTimeMillis());
+                compliance.setClientId(user.getId());
+                compliance.setName(user.getFirstName() + " " + user.getLastName());
+                compliance.setType("AML Screening");
+                compliance.setStatus("pending");
+                compliance.setRisk("Low");
+                compliance.setLastUpdated(System.currentTimeMillis());
+                compliance.getAuditLogs().add("AML compliance monitoring initialized on auto-registration.");
+                complianceRepository.save(compliance);
+            }
+        }
+
         Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(loginRequest.getEmail(), loginRequest.getPassword()));
 

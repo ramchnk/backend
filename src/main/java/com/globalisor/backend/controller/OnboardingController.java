@@ -138,6 +138,7 @@ public class OnboardingController {
 
                     Map<String, Object> item = new HashMap<>();
                     item.put("sameAsDirector", getMergedObject(existing, "sameAsDirector", rInd, "sameAsDirector", false));
+                    item.put("selectedDirectorIdx", getMergedValue(existing, "selectedDirectorIdx", rInd, "selectedDirectorIdx"));
                     item.put("fullName", getMergedValue(existing, "fullName", rInd, "name"));
                     item.put("idNumber", getMergedValue(existing, "idNumber", rInd, "idNum"));
                     item.put("nationality", getMergedValue(existing, "nationality", rInd, "nation"));
@@ -151,6 +152,8 @@ public class OnboardingController {
                     item.put("shareClass", getMergedValue(existing, "shareClass", rInd, "shareClass").isEmpty() ? "Select" : getMergedValue(existing, "shareClass", rInd, "shareClass"));
                     item.put("numberOfShares", getMergedValue(existing, "numberOfShares", rInd, "shares"));
                     item.put("shareCapitalAmount", getMergedValue(existing, "shareCapitalAmount", rInd, "percent"));
+                    item.put("numberOfSharesPct", getMergedValue(existing, "numberOfSharesPct", rInd, "numberOfSharesPct"));
+                    item.put("shareCapitalAmountPct", getMergedValue(existing, "shareCapitalAmountPct", rInd, "shareCapitalAmountPct"));
                     item.put("ownershipPercentage", getMergedValue(existing, "ownershipPercentage", rInd, "ownershipPercentage"));
                     item.put("uboDeclaration", getMergedValue(existing, "uboDeclaration", rInd, "uboDeclaration").isEmpty() ? "Select" : getMergedValue(existing, "uboDeclaration", rInd, "uboDeclaration"));
                     newIndList.add(item);
@@ -185,6 +188,8 @@ public class OnboardingController {
                     item.put("shareClass", getMergedValue(existing, "shareClass", rCorp, "shareClass").isEmpty() ? "Select" : getMergedValue(existing, "shareClass", rCorp, "shareClass"));
                     item.put("numberOfShares", getMergedValue(existing, "numberOfShares", rCorp, "shares"));
                     item.put("shareCapitalAmount", getMergedValue(existing, "shareCapitalAmount", rCorp, "percent"));
+                    item.put("numberOfSharesPct", getMergedValue(existing, "numberOfSharesPct", rCorp, "numberOfSharesPct"));
+                    item.put("shareCapitalAmountPct", getMergedValue(existing, "shareCapitalAmountPct", rCorp, "shareCapitalAmountPct"));
                     item.put("ownershipPercentage", getMergedValue(existing, "ownershipPercentage", rCorp, "ownershipPercentage"));
                     item.put("uboDeclaration", getMergedValue(existing, "uboDeclaration", rCorp, "uboDeclaration").isEmpty() ? "No" : getMergedValue(existing, "uboDeclaration", rCorp, "uboDeclaration"));
                     newCorpList.add(item);

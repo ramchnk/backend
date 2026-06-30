@@ -81,7 +81,7 @@ public class PreRegSectionController {
             }
             if (!hasPostalCode) {
                 List<Map<String, Object>> officeFields = new ArrayList<>();
-                officeFields.add(createFieldWithHint("office.useService", "Registered Address Option *", "select", true, "$480 per year", List.of("false:Yes, I have Office Address", "true:No, I Need Globalisor Registered Address"), "Statutorily required. Real address in Singapore, mail scanned weekly."));
+                officeFields.add(createFieldWithHint("office.useService", "Registered Address Option *", "select", true, "$480 per year", List.of("false:Yes, I have Office Address", "true:Globalisor Address"), "Statutorily required. Real address in Singapore, mail scanned weekly."));
                 officeFields.add(createField("office.postalCode", "Postal Code", "text", true, "e.g. 079903", null));
                 officeFields.add(createField("office.block", "Block Number", "text", true, "e.g. 10", null));
                 officeFields.add(createField("office.streetName", "Street Name", "text", true, "e.g. Anson Road", null));
@@ -152,7 +152,7 @@ public class PreRegSectionController {
 
         // 4. Registered Office
         List<Map<String, Object>> officeFields = new ArrayList<>();
-        officeFields.add(createFieldWithHint("office.useService", "Registered Address Option *", "select", true, "$480 per year", List.of("false:Yes, I have Office Address", "true:No, I Need Globalisor Registered Address"), "Statutorily required. Real address in Singapore, mail scanned weekly."));
+        officeFields.add(createFieldWithHint("office.useService", "Registered Address Option *", "select", true, "$480 per year", List.of("false:Yes, I have Office Address", "true:Globalisor Address"), "Statutorily required. Real address in Singapore, mail scanned weekly."));
         officeFields.add(createField("office.postalCode", "Postal Code", "text", true, "e.g. 079903", null));
         officeFields.add(createField("office.block", "Block Number", "text", true, "e.g. 10", null));
         officeFields.add(createField("office.streetName", "Street Name", "text", true, "e.g. Anson Road", null));
