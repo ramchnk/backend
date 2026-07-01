@@ -55,6 +55,7 @@ public class OnboardingController {
         } else {
             ob = new Onboarding();
             ob.setClientId(clientId);
+            ob.setDisplayClientId(generateNextDisplayClientId());
             ob.setStatus("in_progress");
             Optional<com.globalisor.backend.model.User> uOpt = userRepository.findById(clientId);
             if (uOpt.isPresent()) {
@@ -89,9 +90,9 @@ public class OnboardingController {
                     c.put("currency", rCurr);
                     c.put("customCurrency", "");
                     c.put("shareClass", reqCapital.getOrDefault("type", "Ordinary"));
-                    c.put("numberOfShares", String.valueOf(reqCapital.getOrDefault("numShares", "10000")));
-                    c.put("shareCapitalAmount", String.valueOf(reqCapital.getOrDefault("issued", "10000")));
-                    c.put("paidUpShareCapital", String.valueOf(reqCapital.getOrDefault("paidUp", "10000")));
+                    c.put("numberOfShares", "0");
+                    c.put("shareCapitalAmount", "0");
+                    c.put("paidUpShareCapital", "0");
                     capCurrencies.add(c);
                     capStep.getData().put("currencies", capCurrencies);
                     changed = true;
@@ -261,6 +262,7 @@ public class OnboardingController {
         Onboarding ob = opt.orElseGet(() -> {
             Onboarding n = new Onboarding();
             n.setClientId(clientId);
+            n.setDisplayClientId(generateNextDisplayClientId());
             n.setStatus("in_progress");
             // Try to get name/email from user
             userRepository.findById(clientId).ifPresent(u -> {
@@ -295,16 +297,13 @@ public class OnboardingController {
             Map<String, Object> newData = (Map<String, Object>) body.get("data");
             step.getData().putAll(newData);
         }
-        if (body.containsKey("status")) {
-            String oldStatus = step.getStatus();
-            String newStatus = (String) body.get("status");
-            if ("submitted".equals(newStatus) || "under_review".equals(newStatus)) {
-                newStatus = "approved";
+            if (body.containsKey("status")) {
+                String oldStatus = step.getStatus();
+                String newStatus = (String) body.get("status");
+                step.setStatus(newStatus);
+                step.getAuditLogs().add("Status changed from " + oldStatus + " to " + newStatus + " at " + new Date());
+                ob.getAuditLogs().add("Step '" + step.getTitle() + "' status → " + newStatus);
             }
-            step.setStatus(newStatus);
-            step.getAuditLogs().add("Status changed from " + oldStatus + " to " + newStatus + " at " + new Date());
-            ob.getAuditLogs().add("Step '" + step.getTitle() + "' status → " + newStatus);
-        }
         if (body.containsKey("documents")) {
             step.getDocuments().clear();
             @SuppressWarnings("unchecked")
@@ -696,13 +695,8 @@ public class OnboardingController {
             "submitted".equals(s) || "under_review".equals(s) || "approved".equals(s)
         );
 
-        if (ob.isPortalActivated() || allApproved) {
+        if (ob.isPortalActivated()) {
             ob.setStatus("approved");
-            ob.setPortalActivated(true);
-            if (ob.getActivatedAt() == null) {
-                ob.setActivatedAt(System.currentTimeMillis());
-                ob.setActivatedBy("System Auto-Approval");
-            }
         } else if (anyRejected) {
             ob.setStatus("rejected");
         } else if (allCompletedOrApproved) {
@@ -744,5 +738,45 @@ public class OnboardingController {
             if (v != null) return v;
         }
         return defaultVal;
+    }
+
+    private synchronized String generateNextDisplayClientId() {
+        List<Onboarding> all = onboardingRepository.findAll();
+        int maxId = 100;
+        for (Onboarding o : all) {
+            if (o.getDisplayClientId() != null) {
+                try {
+                    int val = Integer.parseInt(o.getDisplayClientId());
+                    if (val > maxId) {
+                        maxId = val;
+                    }
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+        return String.valueOf(maxId + 1);
+    }
+
+    @jakarta.annotation.PostConstruct
+    public void migrateExistingDisplayClientIds() {
+        List<Onboarding> all = onboardingRepository.findAll();
+        all.sort(Comparator.comparing(Onboarding::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(Onboarding::getId));
+
+        int currentNext = 101;
+        for (Onboarding ob : all) {
+            if (ob.getDisplayClientId() == null || ob.getDisplayClientId().trim().isEmpty()) {
+                while (true) {
+                    final int checkVal = currentNext;
+                    boolean exists = all.stream().anyMatch(o -> String.valueOf(checkVal).equals(o.getDisplayClientId()));
+                    if (!exists) {
+                        ob.setDisplayClientId(String.valueOf(checkVal));
+                        onboardingRepository.save(ob);
+                        currentNext = checkVal + 1;
+                        break;
+                    }
+                    currentNext++;
+                }
+            }
+        }
     }
 }
