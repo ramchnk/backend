@@ -14,6 +14,7 @@ public class Onboarding {
     @Id
     private String id;
     private String clientId;
+    private String displayClientId;
     private String clientEmail;
     private String clientName;
 
