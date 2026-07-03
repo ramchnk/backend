@@ -89,9 +89,9 @@ public class OnboardingController {
                     c.put("currency", rCurr);
                     c.put("customCurrency", "");
                     c.put("shareClass", reqCapital.getOrDefault("type", "Ordinary"));
-                    c.put("numberOfShares", String.valueOf(reqCapital.getOrDefault("numShares", "10000")));
-                    c.put("shareCapitalAmount", String.valueOf(reqCapital.getOrDefault("issued", "10000")));
-                    c.put("paidUpShareCapital", String.valueOf(reqCapital.getOrDefault("paidUp", "10000")));
+                    c.put("numberOfShares", String.valueOf(reqCapital.getOrDefault("numShares", "")));
+                    c.put("shareCapitalAmount", String.valueOf(reqCapital.getOrDefault("issued", "")));
+                    c.put("paidUpShareCapital", String.valueOf(reqCapital.getOrDefault("paidUp", "")));
                     capCurrencies.add(c);
                     capStep.getData().put("currencies", capCurrencies);
                     changed = true;
@@ -121,6 +121,7 @@ public class OnboardingController {
                     item.put("residentialAddress", getMergedValue(existing, "residentialAddress", rDir, "addr"));
                     item.put("email", getMergedValue(existing, "email", rDir, "email"));
                     item.put("mobile", getMergedValue(existing, "mobile", rDir, "phone"));
+                    item.put("gender", getMergedValue(existing, "gender", rDir, "gender"));
                     item.put("disqualificationAcknowledge", getMergedObject(existing, "disqualificationAcknowledge", rDir, "disqualificationAcknowledge", false));
                     newList.add(item);
                 }
