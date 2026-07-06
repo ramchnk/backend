@@ -74,6 +74,13 @@ public class OnboardingController {
             Map<String, Object> reqData = requirement.getData();
             if (reqData != null) {
                 boolean changed = false;
+                if (reqData.containsKey("journeyType")) {
+                    String jType = (String) reqData.get("journeyType");
+                    if (jType != null && !jType.equals(ob.getJourneyType())) {
+                        ob.setJourneyType(jType);
+                        changed = true;
+                    }
+                }
 
                 // --- Sync Share Capital ---
                 Onboarding.OnboardingStep capStep = ob.getStepShareCapital();
@@ -118,10 +125,15 @@ public class OnboardingController {
                     item.put("fullName", getMergedValue(existing, "fullName", rDir, "name"));
                     item.put("idNumber", getMergedValue(existing, "idNumber", rDir, "idNum"));
                     item.put("nationality", getMergedValue(existing, "nationality", rDir, "nation"));
+                    item.put("gender", getMergedValue(existing, "gender", rDir, "gender"));
                     item.put("dateOfBirth", getMergedValue(existing, "dateOfBirth", rDir, "dob"));
                     item.put("residentialAddress", getMergedValue(existing, "residentialAddress", rDir, "addr"));
+                    item.put("useDifferentAddress", getMergedObject(existing, "useDifferentAddress", rDir, "useDifferentAddress", false));
+                    item.put("alternativeAddress", getMergedValue(existing, "alternativeAddress", rDir, "alternativeAddress"));
                     item.put("email", getMergedValue(existing, "email", rDir, "email"));
                     item.put("mobile", getMergedValue(existing, "mobile", rDir, "phone"));
+                    item.put("idType", getMergedValue(existing, "idType", rDir, "idType"));
+                    item.put("source", getMergedValue(existing, "source", rDir, "source"));
                     item.put("disqualificationAcknowledge", getMergedObject(existing, "disqualificationAcknowledge", rDir, "disqualificationAcknowledge", false));
                     newList.add(item);
                 }
@@ -471,6 +483,17 @@ public class OnboardingController {
                          "- residentialAddress: The residential address listed on the back of the NRIC (if visible, otherwise null)\n" +
                          "- email: Return null\n" +
                          "- mobile: Return null";
+            } else if ("passport".equals(docType)) {
+                prompt = "Extract the following details from this Passport document image. Return a JSON object with the following keys:\n" +
+                         "- fullName: The full name of the person (in uppercase)\n" +
+                         "- idNumber: The passport number\n" +
+                         "- nationality: The nationality\n" +
+                         "- gender: 'Male' or 'Female'\n" +
+                         "- dateOfBirth: The date of birth in YYYY-MM-DD format\n" +
+                         "- residentialAddress: The address (if visible, otherwise null)\n" +
+                         "- passportExpiry: The passport expiry date in YYYY-MM-DD format\n" +
+                         "- email: Return null\n" +
+                         "- mobile: Return null";
             } else if ("bizfile".equals(docType)) {
                 prompt = "Extract the following details from this Singapore ACRA Bizfile document. Return a JSON object with the following keys:\n" +
                          "- companyName: The name of the company\n" +
@@ -596,6 +619,18 @@ public class OnboardingController {
                 extracted.put("totalShareCapital", 8297985.82);
                 extracted.put("fye", "31 DEC");
                 extracted.put("currency", "SGD");
+            } else if ("passport".equals(docType)) {
+                int randomId = 1000000 + new Random().nextInt(9000000);
+                String randomPassport = "Z" + randomId + "P";
+                extracted.put("fullName", "MOCK FOREIGN SHAREHOLDER " + randomId);
+                extracted.put("idNumber", randomPassport);
+                extracted.put("nationality", "AMERICAN");
+                extracted.put("gender", "Female");
+                extracted.put("dateOfBirth", "1992-05-15");
+                extracted.put("residentialAddress", "456 Broadway, New York, NY 10013");
+                extracted.put("email", "");
+                extracted.put("mobile", "");
+                extracted.put("passportExpiry", "2032-12-31");
             } else if ("ubo_nric".equals(docType)) {
                 int randomId = 1000000 + new Random().nextInt(9000000);
                 extracted.put("uboName", "MOCK UBO " + randomId);
@@ -639,7 +674,8 @@ public class OnboardingController {
 
     // Helper: calculate progress
     private int calculateProgress(Onboarding ob) {
-        List<OnboardingConfig> publishedSteps = onboardingConfigRepository.findByStatusOrderBySortOrderAsc("PUBLISHED");
+        String journey = ob.getJourneyType() != null ? ob.getJourneyType() : "LOCAL";
+        List<OnboardingConfig> publishedSteps = onboardingConfigRepository.findByJourneyTypeAndStatusOrderBySortOrderAsc(journey, "PUBLISHED");
         if (publishedSteps.isEmpty()) {
             List<String> statuses = List.of(
                     ob.getStep1IndividualVerification().getStatus(),
@@ -670,7 +706,8 @@ public class OnboardingController {
     }
 
     private void updateOverallStatus(Onboarding ob) {
-        List<OnboardingConfig> publishedSteps = onboardingConfigRepository.findByStatusOrderBySortOrderAsc("PUBLISHED");
+        String journey = ob.getJourneyType() != null ? ob.getJourneyType() : "LOCAL";
+        List<OnboardingConfig> publishedSteps = onboardingConfigRepository.findByJourneyTypeAndStatusOrderBySortOrderAsc(journey, "PUBLISHED");
         List<String> statuses;
         if (publishedSteps.isEmpty()) {
             statuses = List.of(

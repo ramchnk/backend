@@ -5,11 +5,13 @@ import com.globalisor.backend.model.User;
 import com.globalisor.backend.model.Kyc;
 import com.globalisor.backend.model.Compliance;
 import com.globalisor.backend.model.Onboarding;
+import com.globalisor.backend.model.Invoice;
 import com.globalisor.backend.repository.RequirementRepository;
 import com.globalisor.backend.repository.UserRepository;
 import com.globalisor.backend.repository.KycRepository;
 import com.globalisor.backend.repository.ComplianceRepository;
 import com.globalisor.backend.repository.OnboardingRepository;
+import com.globalisor.backend.repository.InvoiceRepository;
 import com.globalisor.backend.security.UserDetailsImpl;
 import com.globalisor.backend.security.EncryptionUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +34,9 @@ public class RequirementController {
  
     @Autowired
     RequirementRepository requirementRepository;
+
+    @Autowired
+    InvoiceRepository invoiceRepository;
  
     @Autowired
     private com.globalisor.backend.service.NotificationService notificationService;
@@ -186,6 +191,30 @@ public class RequirementController {
         }
         requirementRepository.save(requirement);
 
+        // Generate paid Invoice
+        try {
+            String amountStr = "SGD 1,315";
+            if (data.containsKey("totalAmount")) {
+                amountStr = String.valueOf(data.get("totalAmount"));
+            }
+            String journeyType = "LOCAL";
+            if (data.containsKey("journeyType")) {
+                journeyType = String.valueOf(data.get("journeyType"));
+            }
+
+            Invoice invoice = new Invoice();
+            invoice.setId("INV-" + System.currentTimeMillis());
+            invoice.setClientId(userDetails.getId());
+            invoice.setAmount(amountStr);
+            invoice.setStatus("paid");
+            invoice.setDate(new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date()));
+            invoice.setDueDate(new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date()));
+            invoice.setDescription("Singapore Company Incorporation (" + journeyType + " Journey)");
+            invoiceRepository.save(invoice);
+        } catch (Exception e) {
+            System.err.println("Failed to create paid invoice: " + e.getMessage());
+        }
+
         Map<String, Object> response = new HashMap<>();
         response.put("status", requirement.getStatus());
         response.put("data", requirement.getData());
@@ -295,8 +324,17 @@ public class RequirementController {
             onboarding.setClientName(clientUser.getFirstName() + " " + clientUser.getLastName());
             onboarding.setStatus("in_progress");
             onboarding.setPortalActivated(false);
+            if (data.containsKey("journeyType")) {
+                onboarding.setJourneyType(String.valueOf(data.get("journeyType")));
+            }
             onboarding.getAuditLogs().add("Onboarding initiated on pre-registration submission at " + new Date());
             onboardingRepository.save(onboarding);
+        } else {
+            Onboarding onboarding = onboardingOpt.get();
+            if (data.containsKey("journeyType")) {
+                onboarding.setJourneyType(String.valueOf(data.get("journeyType")));
+                onboardingRepository.save(onboarding);
+            }
         }
 
         // 4. Save the Requirement record (pre-registration application)

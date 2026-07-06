@@ -23,6 +23,7 @@ public class PreRegSection {
     private String status = "DRAFT"; // "DRAFT", "PUBLISHED", "UNPUBLISHED"
     private List<Map<String, Object>> fields;
     private String applicableServices = "All";
+    private String journeyType = "LOCAL"; // "LOCAL" or "FOREIGNER"
 
     // Checklist, FAQs, Attachments, and Documents
     private List<String> checklists;
@@ -38,6 +39,10 @@ public class PreRegSection {
     private Map<String, Object> publishedData;
 
     public PreRegSection(String id, String key, String title, String description, String type, Integer sortOrder, List<Map<String, Object>> fields) {
+        this(id, key, title, description, type, sortOrder, fields, "LOCAL");
+    }
+
+    public PreRegSection(String id, String key, String title, String description, String type, Integer sortOrder, List<Map<String, Object>> fields, String journeyType) {
         this.id = id;
         this.key = key;
         this.title = title;
@@ -46,6 +51,7 @@ public class PreRegSection {
         this.sortOrder = sortOrder;
         this.fields = fields;
         this.applicableServices = "All";
+        this.journeyType = journeyType;
         this.status = "PUBLISHED";
         this.lastUpdatedAt = new Date();
         this.lastUpdatedBy = "System";
@@ -59,7 +65,8 @@ public class PreRegSection {
             "type", type,
             "sortOrder", sortOrder,
             "fields", fields,
-            "applicableServices", "All"
+            "applicableServices", "All",
+            "journeyType", journeyType
         );
     }
 }

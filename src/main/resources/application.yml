@@ -6,6 +6,12 @@ spring:
       uri: "mongodb+srv://greenbridge_db_user:Pass%40green@globalisor.m4zuxpm.mongodb.net/globalisor?appName=globalisor"
       database: globalisor
 
+logging:
+  level:
+    org.springframework.web: DEBUG
+    org.springframework.web.servlet: DEBUG
+    com.globalisor.backend: DEBUG
+
 globalisor:
   app:
     jwtSecret: globalisorSecretKeyThatIsVeryLongAndSecureEnoughForHS256Algorithm1234567890
