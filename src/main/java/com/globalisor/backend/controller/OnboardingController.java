@@ -97,9 +97,9 @@ public class OnboardingController {
                     c.put("currency", rCurr);
                     c.put("customCurrency", "");
                     c.put("shareClass", reqCapital.getOrDefault("type", "Ordinary"));
-                    c.put("numberOfShares", "0");
-                    c.put("shareCapitalAmount", "0");
-                    c.put("paidUpShareCapital", "0");
+                    c.put("numberOfShares", String.valueOf(reqCapital.getOrDefault("numShares", "")));
+                    c.put("shareCapitalAmount", String.valueOf(reqCapital.getOrDefault("issued", "")));
+                    c.put("paidUpShareCapital", String.valueOf(reqCapital.getOrDefault("paidUp", "")));
                     capCurrencies.add(c);
                     capStep.getData().put("currencies", capCurrencies);
                     changed = true;
