@@ -97,9 +97,9 @@ public class OnboardingController {
                     c.put("currency", rCurr);
                     c.put("customCurrency", "");
                     c.put("shareClass", reqCapital.getOrDefault("type", "Ordinary"));
-                    c.put("numberOfShares", "0");
-                    c.put("shareCapitalAmount", "0");
-                    c.put("paidUpShareCapital", "0");
+                    c.put("numberOfShares", String.valueOf(reqCapital.getOrDefault("numShares", "")));
+                    c.put("shareCapitalAmount", String.valueOf(reqCapital.getOrDefault("issued", "")));
+                    c.put("paidUpShareCapital", String.valueOf(reqCapital.getOrDefault("paidUp", "")));
                     capCurrencies.add(c);
                     capStep.getData().put("currencies", capCurrencies);
                     changed = true;
@@ -134,6 +134,7 @@ public class OnboardingController {
                     item.put("mobile", getMergedValue(existing, "mobile", rDir, "phone"));
                     item.put("idType", getMergedValue(existing, "idType", rDir, "idType"));
                     item.put("source", getMergedValue(existing, "source", rDir, "source"));
+                    item.put("passportExpiry", getMergedValue(existing, "passportExpiry", rDir, "passportExpiry"));
                     item.put("disqualificationAcknowledge", getMergedObject(existing, "disqualificationAcknowledge", rDir, "disqualificationAcknowledge", false));
                     newList.add(item);
                 }
@@ -182,6 +183,7 @@ public class OnboardingController {
                     item.put("residentialAddress", getMergedValue(existing, "residentialAddress", rInd, "addr"));
                     item.put("email", getMergedValue(existing, "email", rInd, "email"));
                     item.put("mobile", getMergedValue(existing, "mobile", rInd, "phone"));
+                    item.put("passportExpiry", getMergedValue(existing, "passportExpiry", rInd, "passportExpiry"));
                     item.put("totalShares", getMergedValue(existing, "totalShares", rInd, "totalShares"));
                     item.put("totalShareCapital", getMergedValue(existing, "totalShareCapital", rInd, "totalShareCapital"));
                     item.put("currency", getMergedValue(existing, "currency", rInd, "currency").isEmpty() ? "Select" : getMergedValue(existing, "currency", rInd, "currency"));
