@@ -30,6 +30,7 @@ public class OnboardingConfig {
     // Ordering and state
     private int sortOrder = 0;
     private String status = "DRAFT"; // DRAFT, PUBLISHED, UNPUBLISHED, ARCHIVED
+    private String journeyType = "LOCAL"; // LOCAL or FOREIGNER
     private boolean mandatory = true;
 
     // Dynamic sections config

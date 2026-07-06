@@ -26,8 +26,19 @@ public class OnboardingConfigController {
     public void init() {
         try {
             repo.deleteAll();
-            List<OnboardingConfig> defaults = buildDefaultSteps();
-            for (OnboardingConfig step : defaults) {
+            List<OnboardingConfig> localDefaults = buildDefaultSteps("LOCAL");
+            for (OnboardingConfig step : localDefaults) {
+                step.setJourneyType("LOCAL");
+                step.setCreatedBy("System Auto-Seed");
+                step.setCreatedAt(new Date());
+                step.setLastUpdatedBy("System Auto-Seed");
+                step.setLastUpdatedAt(new Date());
+                step.setHistory(new ArrayList<>());
+                repo.save(step);
+            }
+            List<OnboardingConfig> foreignerDefaults = buildDefaultSteps("FOREIGNER");
+            for (OnboardingConfig step : foreignerDefaults) {
+                step.setJourneyType("FOREIGNER");
                 step.setCreatedBy("System Auto-Seed");
                 step.setCreatedAt(new Date());
                 step.setLastUpdatedBy("System Auto-Seed");
@@ -51,8 +62,9 @@ public class OnboardingConfigController {
     /** GET all steps (admin view — all statuses, ordered) */
     @GetMapping
     public ResponseEntity<List<OnboardingConfig>> getAll(
-            @RequestParam(required = false, defaultValue = "false") boolean includeArchived) {
-        List<OnboardingConfig> all = repo.findAllByOrderBySortOrderAsc();
+            @RequestParam(required = false, defaultValue = "false") boolean includeArchived,
+            @RequestParam(required = false, defaultValue = "LOCAL") String journeyType) {
+        List<OnboardingConfig> all = repo.findByJourneyTypeOrderBySortOrderAsc(journeyType);
         if (!includeArchived) {
             all.removeIf(s -> "ARCHIVED".equals(s.getStatus()));
         }
@@ -61,8 +73,9 @@ public class OnboardingConfigController {
 
     /** GET published steps only (client portal) */
     @GetMapping("/published")
-    public ResponseEntity<List<OnboardingConfig>> getPublished() {
-        return ResponseEntity.ok(repo.findByStatusOrderBySortOrderAsc("PUBLISHED"));
+    public ResponseEntity<List<OnboardingConfig>> getPublished(
+            @RequestParam(required = false, defaultValue = "LOCAL") String journeyType) {
+        return ResponseEntity.ok(repo.findByJourneyTypeAndStatusOrderBySortOrderAsc(journeyType, "PUBLISHED"));
     }
 
     /** GET single step by ID */
@@ -84,9 +97,12 @@ public class OnboardingConfigController {
         config.setVersion(1);
         if (config.getHistory() == null) config.setHistory(new ArrayList<>());
         if (config.getStatus() == null) config.setStatus("DRAFT");
+        if (config.getJourneyType() == null || config.getJourneyType().isEmpty()) {
+            config.setJourneyType("LOCAL");
+        }
 
-        // Auto-assign sort order
-        List<OnboardingConfig> all = repo.findAllByOrderBySortOrderAsc();
+        // Auto-assign sort order within the journeyType
+        List<OnboardingConfig> all = repo.findByJourneyTypeOrderBySortOrderAsc(config.getJourneyType());
         config.setSortOrder(all.size());
 
         OnboardingConfig saved = repo.save(config);
@@ -128,6 +144,7 @@ public class OnboardingConfigController {
         if (updates.getRequiredDocs() != null) existing.setRequiredDocs(updates.getRequiredDocs());
         if (updates.getExtractedFields() != null) existing.setExtractedFields(updates.getExtractedFields());
         if (updates.getAutoChecks() != null) existing.setAutoChecks(updates.getAutoChecks());
+        if (updates.getJourneyType() != null) existing.setJourneyType(updates.getJourneyType());
         existing.setMandatory(updates.isMandatory());
         existing.setDynamicSection(updates.isDynamicSection());
         if (updates.getDynamicCountKey() != null) existing.setDynamicCountKey(updates.getDynamicCountKey());
@@ -218,10 +235,11 @@ public class OnboardingConfigController {
         copy.setAutoChecks(original.getAutoChecks());
         copy.setDynamicSection(original.isDynamicSection());
         copy.setDynamicCountKey(original.getDynamicCountKey());
+        copy.setJourneyType(original.getJourneyType());
         copy.setStatus("DRAFT");
         copy.setVersion(1);
         copy.setHistory(new ArrayList<>());
-        copy.setSortOrder(repo.findAllByOrderBySortOrderAsc().size());
+        copy.setSortOrder(repo.findByJourneyTypeOrderBySortOrderAsc(original.getJourneyType()).size());
         copy.setCreatedBy(getAdminName());
         copy.setCreatedAt(new Date());
         copy.setLastUpdatedBy(getAdminName());
@@ -245,13 +263,14 @@ public class OnboardingConfigController {
         return ResponseEntity.ok(Map.of("reordered", orderedIds.size()));
     }
 
-    /** POST seed the 7 default onboarding steps (idempotent) */
+    /** POST seed default onboarding steps */
     @PostMapping("/import-defaults")
-    public ResponseEntity<?> importDefaults() {
-        List<OnboardingConfig> defaults = buildDefaultSteps();
+    public ResponseEntity<?> importDefaults(@RequestParam(required = false, defaultValue = "LOCAL") String journeyType) {
+        List<OnboardingConfig> defaults = buildDefaultSteps(journeyType);
         int added = 0;
         for (OnboardingConfig step : defaults) {
-            if (!repo.existsById(step.getId())) {
+            if (!repo.existsByKeyAndJourneyType(step.getKey(), journeyType)) {
+                step.setJourneyType(journeyType);
                 step.setCreatedBy("System");
                 step.setCreatedAt(new Date());
                 step.setLastUpdatedBy("System");
@@ -264,11 +283,17 @@ public class OnboardingConfigController {
         return ResponseEntity.ok(Map.of("added", added, "skipped", defaults.size() - added));
     }
 
-    // ─── Build the 7 canonical default steps ───────────────────────────────────
-    private List<OnboardingConfig> buildDefaultSteps() {
+    private List<OnboardingConfig> buildDefaultSteps(String journeyType) {
+        if ("FOREIGNER".equalsIgnoreCase(journeyType)) {
+            return buildForeignerDefaultSteps();
+        } else {
+            return buildLocalDefaultSteps();
+        }
+    }
+
+    private List<OnboardingConfig> buildLocalDefaultSteps() {
         List<OnboardingConfig> steps = new ArrayList<>();
 
-        // Step 0 — Document Checklist
         OnboardingConfig sChecklist = new OnboardingConfig();
         sChecklist.setId("ob-default-0");
         sChecklist.setKey("document_checklist");
@@ -279,11 +304,11 @@ public class OnboardingConfigController {
         sChecklist.setSortOrder(0);
         sChecklist.setStatus("PUBLISHED");
         sChecklist.setVersion(1);
+        sChecklist.setJourneyType("LOCAL");
         sChecklist.setManualFields(new ArrayList<>());
         sChecklist.setRequiredDocs(new ArrayList<>());
         steps.add(sChecklist);
 
-        // Step 1 — Director Details
         OnboardingConfig s2 = new OnboardingConfig();
         s2.setId("ob-default-2");
         s2.setKey("director_details");
@@ -295,6 +320,7 @@ public class OnboardingConfigController {
         s2.setSortOrder(1);
         s2.setStatus("PUBLISHED");
         s2.setVersion(1);
+        s2.setJourneyType("LOCAL");
         s2.setDynamicSection(true);
         s2.setDynamicCountKey("directorCount");
         s2.setManualFields(List.of(
@@ -314,7 +340,6 @@ public class OnboardingConfigController {
         ));
         steps.add(s2);
 
-        // Step 2 — Share Capital Details
         OnboardingConfig sShare = new OnboardingConfig();
         sShare.setId("ob-default-share-capital");
         sShare.setKey("share_capital");
@@ -325,11 +350,11 @@ public class OnboardingConfigController {
         sShare.setSortOrder(2);
         sShare.setStatus("PUBLISHED");
         sShare.setVersion(1);
+        sShare.setJourneyType("LOCAL");
         sShare.setManualFields(new ArrayList<>());
         sShare.setRequiredDocs(new ArrayList<>());
         steps.add(sShare);
 
-        // Step 3 — Individual Shareholder
         OnboardingConfig s3 = new OnboardingConfig();
         s3.setId("ob-default-3");
         s3.setKey("individual_shareholder");
@@ -340,6 +365,7 @@ public class OnboardingConfigController {
         s3.setSortOrder(3);
         s3.setStatus("PUBLISHED");
         s3.setVersion(1);
+        s3.setJourneyType("LOCAL");
         s3.setDynamicSection(true);
         s3.setDynamicCountKey("individualShareholderCount");
         s3.setManualFields(List.of(
@@ -366,7 +392,6 @@ public class OnboardingConfigController {
         ));
         steps.add(s3);
 
-        // Step 4 — Corporate Shareholder
         OnboardingConfig s4 = new OnboardingConfig();
         s4.setId("ob-default-4");
         s4.setKey("corporate_shareholder");
@@ -377,6 +402,7 @@ public class OnboardingConfigController {
         s4.setSortOrder(4);
         s4.setStatus("PUBLISHED");
         s4.setVersion(1);
+        s4.setJourneyType("LOCAL");
         s4.setDynamicSection(true);
         s4.setDynamicCountKey("corporateShareholderCount");
         s4.setExtractedFields(List.of("companyName","uen","dateOfIncorporation","registeredAddress"));
@@ -402,7 +428,6 @@ public class OnboardingConfigController {
         ));
         steps.add(s4);
 
-        // Step 5 — Corporate Representative
         OnboardingConfig s6 = new OnboardingConfig();
         s6.setId("ob-default-6");
         s6.setKey("corporate_rep");
@@ -413,6 +438,7 @@ public class OnboardingConfigController {
         s6.setSortOrder(5);
         s6.setStatus("PUBLISHED");
         s6.setVersion(1);
+        s6.setJourneyType("LOCAL");
         s6.setExtractedFields(List.of("fullName","idNumber","nationality","dateOfBirth"));
         s6.setManualFields(List.of(
                 field("fullName","Full Legal Name","text",true,false,null,null,0),
@@ -430,7 +456,6 @@ public class OnboardingConfigController {
         ));
         steps.add(s6);
 
-        // Step 6 — Final Declaration
         OnboardingConfig s7 = new OnboardingConfig();
         s7.setId("ob-default-7");
         s7.setKey("final_declaration");
@@ -442,6 +467,220 @@ public class OnboardingConfigController {
         s7.setSortOrder(6);
         s7.setStatus("PUBLISHED");
         s7.setVersion(1);
+        s7.setJourneyType("LOCAL");
+        s7.setManualFields(List.of(
+                field("declarationAgreed","I confirm that all the details provided are true and accurate to the best of my knowledge.","checkbox",true,false,null,null,0),
+                field("consentAgreed","I consent to Globalisor conducting compliance, AML/KYC screening, and verification checks.","checkbox",true,false,null,null,1),
+                field("fye","Financial Year End (FYE)","select",true,false,null,List.of("Select","31 Dec","31 Mar","30 Jun","30 Sep"),2)
+        ));
+        s7.setRequiredDocs(new ArrayList<>());
+        steps.add(s7);
+
+        return steps;
+    }
+
+    private List<OnboardingConfig> buildForeignerDefaultSteps() {
+        List<OnboardingConfig> steps = new ArrayList<>();
+
+        OnboardingConfig sChecklist = new OnboardingConfig();
+        sChecklist.setId("ob-default-0-foreigner");
+        sChecklist.setKey("document_checklist");
+        sChecklist.setField("stepDocumentChecklist");
+        sChecklist.setTitle("Document Checklist");
+        sChecklist.setIcon("clipboard-list");
+        sChecklist.setDescription("Please review the required documents for Foreign Incorporation before starting onboarding: Passport, Address Proof, and Corporate Documents.");
+        sChecklist.setSortOrder(0);
+        sChecklist.setStatus("PUBLISHED");
+        sChecklist.setVersion(1);
+        sChecklist.setJourneyType("FOREIGNER");
+        sChecklist.setManualFields(new ArrayList<>());
+        sChecklist.setRequiredDocs(new ArrayList<>());
+        steps.add(sChecklist);
+
+        OnboardingConfig s2 = new OnboardingConfig();
+        s2.setId("ob-default-2-foreigner");
+        s2.setKey("director_details");
+        s2.setField("step2DirectorDetails");
+        s2.setTitle("Director Details");
+        s2.setIcon("briefcase");
+        s2.setDescription("Provide details and upload required documents for all directors (both Local and Foreign directors).");
+        s2.setDeclaration("");
+        s2.setSortOrder(1);
+        s2.setStatus("PUBLISHED");
+        s2.setVersion(1);
+        s2.setJourneyType("FOREIGNER");
+        s2.setDynamicSection(true);
+        s2.setDynamicCountKey("directorCount");
+        s2.setManualFields(List.of(
+                field("fullName","Full Legal Name","text",true,false,null,null,0),
+                field("idNumber","ID Number / NRIC","text",true,false,null,null,1),
+                field("nationality","Nationality","nationality",true,false,null,null,2),
+                field("gender","Gender","select",true,false,null,List.of("Select","Male","Female","Other"),3),
+                field("dateOfBirth","Date of Birth","date",true,false,null,null,4),
+                field("residentialAddress","Residential Address","text",true,false,null,null,5),
+                field("email","Email","email",true,false,null,null,6),
+                field("mobile","Mobile Number","phone",true,false,null,null,7),
+                field("passportExpiry","Passport Expiry Date","date",false,false,null,null,8)
+        ));
+        s2.setRequiredDocs(List.of(
+                doc("passport","Passport",true,true,List.of("fullName","idNumber","nationality","gender","dateOfBirth","passportExpiry")),
+                doc("address_proof","Utility Bill / Bank Statement / Mobile Bill (Local Director only)",false,false,null)
+        ));
+        steps.add(s2);
+
+        OnboardingConfig sShare = new OnboardingConfig();
+        sShare.setId("ob-default-share-capital-foreigner");
+        sShare.setKey("share_capital");
+        sShare.setField("stepShareCapital");
+        sShare.setTitle("Share Capital Details");
+        sShare.setIcon("coins");
+        sShare.setDescription("Configure corporate share capital structure and allocate shares to shareholders.");
+        sShare.setSortOrder(2);
+        sShare.setStatus("PUBLISHED");
+        sShare.setVersion(1);
+        sShare.setJourneyType("FOREIGNER");
+        sShare.setManualFields(new ArrayList<>());
+        sShare.setRequiredDocs(new ArrayList<>());
+        steps.add(sShare);
+
+        OnboardingConfig s3 = new OnboardingConfig();
+        s3.setId("ob-default-3-foreigner");
+        s3.setKey("individual_shareholder");
+        s3.setField("step3IndividualShareholder");
+        s3.setTitle("Individual Shareholder Details");
+        s3.setIcon("users");
+        s3.setDescription("Capture individual shareholder information.");
+        s3.setSortOrder(3);
+        s3.setStatus("PUBLISHED");
+        s3.setVersion(1);
+        s3.setJourneyType("FOREIGNER");
+        s3.setDynamicSection(true);
+        s3.setDynamicCountKey("individualShareholderCount");
+        s3.setManualFields(List.of(
+                field("shareholderType","Shareholder Type","select",true,false,null,List.of("Select","Local","Foreigner"),0),
+                field("sameAsDirector","Is individual shareholder same as director?","checkbox",false,false,null,null,1),
+                field("fullName","Full Name","text",true,false,null,null,2),
+                field("idNumber","NRIC / ID Number","text",true,false,null,null,3),
+                field("nationality","Nationality","nationality",true,false,null,null,4),
+                field("dateOfBirth","Date of Birth","date",true,false,null,null,5),
+                field("residentialAddress","Residential Address","text",true,false,null,null,6),
+                field("email","Email","email",true,false,null,null,7),
+                field("mobile","Mobile Number","phone",true,false,null,null,8),
+                field("totalShares","Total Number of Shares of the Company","number",true,false,null,null,9),
+                field("totalShareCapital","Total Share Capital Amount of the Company","number",true,false,null,null,10),
+                field("currency","Currency","select",true,false,null,List.of("Select","SGD","USD"),11),
+                field("shareClass","Share Class","select",true,false,null,List.of("Select","Ordinary","Preference"),12),
+                field("numberOfShares","Number of Shares","number",true,false,null,null,13),
+                field("shareCapitalAmount","Share Capital Amount","number",true,false,null,null,14),
+                field("ownershipPercentage","Ownership % (auto-calculated)","number",false,true,null,null,15),
+                field("uboDeclaration","Is the Shareholder the Ultimate Beneficial Owner?","select",true,false,null,List.of("Select","No","Yes"),16)
+        ));
+        s3.setRequiredDocs(List.of(
+                doc("passport","Passport (Foreigner Shareholder)",false,true,List.of("fullName","idNumber","nationality")),
+                doc("nric","NRIC / FIN (Local Shareholder)",false,true,List.of("fullName","idNumber","nationality")),
+                doc("address_proof","Address Proof (Utility Bill / Bank Statement / Mobile Bill)",true,true,List.of("residentialAddress"))
+        ));
+        steps.add(s3);
+
+        OnboardingConfig s4 = new OnboardingConfig();
+        s4.setId("ob-default-4-foreigner");
+        s4.setKey("corporate_shareholder");
+        s4.setField("step4CorporateShareholder");
+        s4.setTitle("Corporate Shareholder Details");
+        s4.setIcon("building-2");
+        s4.setDescription("Provide corporate shareholder details and documents.");
+        s4.setSortOrder(4);
+        s4.setStatus("PUBLISHED");
+        s4.setVersion(1);
+        s4.setJourneyType("FOREIGNER");
+        s4.setDynamicSection(true);
+        s4.setDynamicCountKey("corporateShareholderCount");
+        s4.setManualFields(List.of(
+                field("companyName","Company Name","text",true,false,null,null,0),
+                field("uen","Registration Number (UEN/Other)","text",true,false,null,null,1),
+                field("dateOfIncorporation","Date of Incorporation","date",true,false,null,null,2),
+                field("registeredAddress","Registered Address","text",true,false,null,null,3),
+                field("countryOfIncorporation","Country of Incorporation","nationality",true,false,null,null,4),
+                field("totalShares","Total Number of Shares of the Company","number",true,false,null,null,5),
+                field("totalShareCapital","Total Share Capital Amount of the Company","number",true,false,null,null,6),
+                field("currency","Currency","select",true,false,null,List.of("SGD","USD"),7),
+                field("shareClass","Share Class","select",true,false,null,List.of("Select","Ordinary","Preference"),8),
+                field("numberOfShares","Number of Shares","number",true,false,null,null,9),
+                field("shareCapitalAmount","Share Capital Amount","number",true,false,null,null,10),
+                field("ownershipPercentage","Ownership % (auto-calculated)","number",false,true,null,null,11),
+                field("uboDeclaration","Is the Shareholder the Ultimate Beneficial Owner?","select",true,false,null,List.of("No","Yes"),12),
+                field("anyAdditionalController","Any Additional Controller?","checkbox",false,false,null,null,13)
+        ));
+        s4.setRequiredDocs(List.of(
+                doc("bizfile","Bizfile (ACRA for SG entities)",false,true,List.of("companyName","uen","dateOfIncorporation","registeredAddress")),
+                doc("constitution","Constitution / M&AA (for SG entities)",false,false,null),
+                doc("cert_incorporation","Certificate of Incorporation (non-SG entities)",false,false,null),
+                doc("shareholding_structure","Shareholding Structure (non-SG entities)",false,false,null)
+        ));
+        steps.add(s4);
+
+        OnboardingConfig sUbo = new OnboardingConfig();
+        sUbo.setId("ob-default-ubo-foreigner");
+        sUbo.setKey("ubo");
+        sUbo.setField("step5UBO");
+        sUbo.setTitle("Ultimate Beneficial Owner (UBO)");
+        sUbo.setIcon("shield-check");
+        sUbo.setDescription("Provide details and documents for Ultimate Beneficial Owners.");
+        sUbo.setSortOrder(5);
+        sUbo.setStatus("PUBLISHED");
+        sUbo.setVersion(1);
+        sUbo.setJourneyType("FOREIGNER");
+        sUbo.setManualFields(List.of(
+                field("fullName","Full Legal Name","text",true,false,null,null,0),
+                field("idNumber","NRIC / Passport Number","text",true,false,null,null,1),
+                field("nationality","Nationality","nationality",true,false,null,null,2),
+                field("dateOfBirth","Date of Birth","date",true,false,null,null,3),
+                field("residentialAddress","Residential Address","text",true,false,null,null,4)
+        ));
+        sUbo.setRequiredDocs(List.of(
+                doc("ubo_nric","NRIC / Passport Copy",true,true,List.of("fullName","idNumber","nationality")),
+                doc("ubo_address_proof","Address Proof",true,false,null)
+        ));
+        steps.add(sUbo);
+
+        OnboardingConfig s6 = new OnboardingConfig();
+        s6.setId("ob-default-6-foreigner");
+        s6.setKey("corporate_rep");
+        s6.setField("step6CorporateRep");
+        s6.setTitle("Corporate Representative");
+        s6.setIcon("user-cog");
+        s6.setDescription("Upload Passport and Address Proof. Confirm contact details.");
+        s6.setSortOrder(6);
+        s6.setStatus("PUBLISHED");
+        s6.setVersion(1);
+        s6.setJourneyType("FOREIGNER");
+        s6.setManualFields(List.of(
+                field("fullName","Full Legal Name","text",true,false,null,null,0),
+                field("nationality","Nationality","nationality",true,false,null,null,1),
+                field("dateOfBirth","Date of Birth","date",true,false,null,null,2),
+                field("residentialAddress","Residential Address","text",true,false,null,null,3),
+                field("email","Email Address","email",true,false,null,null,4),
+                field("mobile","Mobile Number","phone",true,false,null,null,5),
+                field("passportExpiry","Passport Expiry Date","date",true,false,null,null,6)
+        ));
+        s6.setRequiredDocs(List.of(
+                doc("passport","Passport",true,true,List.of("fullName","nationality","dateOfBirth","passportExpiry")),
+                doc("address_proof","Address Proof",true,false,null)
+        ));
+        steps.add(s6);
+
+        OnboardingConfig s7 = new OnboardingConfig();
+        s7.setId("ob-default-7-foreigner");
+        s7.setKey("final_declaration");
+        s7.setField("step7FinalDeclaration");
+        s7.setTitle("Final Declaration & Consent");
+        s7.setIcon("file-signature");
+        s7.setDescription("Please review all details and declare final consent before submitting your application.");
+        s7.setDeclaration("");
+        s7.setSortOrder(7);
+        s7.setStatus("PUBLISHED");
+        s7.setVersion(1);
+        s7.setJourneyType("FOREIGNER");
         s7.setManualFields(List.of(
                 field("declarationAgreed","I confirm that all the details provided are true and accurate to the best of my knowledge.","checkbox",true,false,null,null,0),
                 field("consentAgreed","I consent to Globalisor conducting compliance, AML/KYC screening, and verification checks.","checkbox",true,false,null,null,1),

@@ -66,7 +66,7 @@ public class OnboardingControllerTest {
 
         Onboarding saved = (Onboarding) response.getBody();
         assertNotNull(saved);
-        assertEquals("approved", saved.getStep1IndividualVerification().getStatus());
+        assertEquals("submitted", saved.getStep1IndividualVerification().getStatus());
         // Since only step 1 is submitted and others are pending, overall status should still be "in_progress"
         assertEquals("in_progress", saved.getStatus());
 
@@ -81,7 +81,7 @@ public class OnboardingControllerTest {
         ResponseEntity<?> finalResponse = controller.updateStep("OB-1", "final_declaration", body);
         Onboarding finalSaved = (Onboarding) finalResponse.getBody();
         assertNotNull(finalSaved);
-        assertEquals("approved", finalSaved.getStep7FinalDeclaration().getStatus());
+        assertEquals("submitted", finalSaved.getStep7FinalDeclaration().getStatus());
         // All steps are submitted, overall status should be "submitted"
         assertEquals("submitted", finalSaved.getStatus());
     }

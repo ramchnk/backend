@@ -17,6 +17,7 @@ public class Onboarding {
     private String displayClientId;
     private String clientEmail;
     private String clientName;
+    private String journeyType = "LOCAL"; // LOCAL or FOREIGNER
 
     // Portal activation flag
     private boolean portalActivated = false;
