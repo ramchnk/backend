@@ -355,14 +355,29 @@ public class OnboardingConfigController {
         sShare.setRequiredDocs(new ArrayList<>());
         steps.add(sShare);
 
+        OnboardingConfig sShDetails = new OnboardingConfig();
+        sShDetails.setId("ob-default-sh-details");
+        sShDetails.setKey("shareholder_details");
+        sShDetails.setField("stepShareholderDetails");
+        sShDetails.setTitle("Shareholder Details");
+        sShDetails.setIcon("users");
+        sShDetails.setDescription("Collect tabular details for all company shareholders.");
+        sShDetails.setSortOrder(3);
+        sShDetails.setStatus("PUBLISHED");
+        sShDetails.setVersion(1);
+        sShDetails.setJourneyType("LOCAL");
+        sShDetails.setManualFields(new ArrayList<>());
+        sShDetails.setRequiredDocs(new ArrayList<>());
+        steps.add(sShDetails);
+
         OnboardingConfig s3 = new OnboardingConfig();
         s3.setId("ob-default-3");
         s3.setKey("individual_shareholder");
         s3.setField("step3IndividualShareholder");
         s3.setTitle("Individual Shareholder Details");
-        s3.setIcon("users");
+        s3.setIcon("user-check");
         s3.setDescription("Capture individual shareholder information. Ownership ≥ 25% will automatically trigger UBO and AML/KYC screening.");
-        s3.setSortOrder(3);
+        s3.setSortOrder(4);
         s3.setStatus("PUBLISHED");
         s3.setVersion(1);
         s3.setJourneyType("LOCAL");
@@ -399,7 +414,7 @@ public class OnboardingConfigController {
         s4.setTitle("Corporate Shareholder Details");
         s4.setIcon("building-2");
         s4.setDescription("Upload Bizfile and constitution for OCR extraction of company details.");
-        s4.setSortOrder(4);
+        s4.setSortOrder(5);
         s4.setStatus("PUBLISHED");
         s4.setVersion(1);
         s4.setJourneyType("LOCAL");
@@ -435,7 +450,7 @@ public class OnboardingConfigController {
         s6.setTitle("Corporate Representative");
         s6.setIcon("user-cog");
         s6.setDescription("Upload NRIC/FIN and address proof for OCR extraction. Confirm contact details.");
-        s6.setSortOrder(5);
+        s6.setSortOrder(6);
         s6.setStatus("PUBLISHED");
         s6.setVersion(1);
         s6.setJourneyType("LOCAL");
@@ -464,7 +479,7 @@ public class OnboardingConfigController {
         s7.setIcon("file-signature");
         s7.setDescription("Please review all details and declare final consent before submitting your application.");
         s7.setDeclaration("");
-        s7.setSortOrder(6);
+        s7.setSortOrder(7);
         s7.setStatus("PUBLISHED");
         s7.setVersion(1);
         s7.setJourneyType("LOCAL");
@@ -543,14 +558,29 @@ public class OnboardingConfigController {
         sShare.setRequiredDocs(new ArrayList<>());
         steps.add(sShare);
 
+        OnboardingConfig sShDetails = new OnboardingConfig();
+        sShDetails.setId("ob-default-sh-details-foreigner");
+        sShDetails.setKey("shareholder_details");
+        sShDetails.setField("stepShareholderDetails");
+        sShDetails.setTitle("Shareholder Details");
+        sShDetails.setIcon("users");
+        sShDetails.setDescription("Collect tabular details for all company shareholders.");
+        sShDetails.setSortOrder(3);
+        sShDetails.setStatus("PUBLISHED");
+        sShDetails.setVersion(1);
+        sShDetails.setJourneyType("FOREIGNER");
+        sShDetails.setManualFields(new ArrayList<>());
+        sShDetails.setRequiredDocs(new ArrayList<>());
+        steps.add(sShDetails);
+
         OnboardingConfig s3 = new OnboardingConfig();
         s3.setId("ob-default-3-foreigner");
         s3.setKey("individual_shareholder");
         s3.setField("step3IndividualShareholder");
         s3.setTitle("Individual Shareholder Details");
-        s3.setIcon("users");
+        s3.setIcon("user-check");
         s3.setDescription("Capture individual shareholder information.");
-        s3.setSortOrder(3);
+        s3.setSortOrder(4);
         s3.setStatus("PUBLISHED");
         s3.setVersion(1);
         s3.setJourneyType("FOREIGNER");
@@ -589,7 +619,7 @@ public class OnboardingConfigController {
         s4.setTitle("Corporate Shareholder Details");
         s4.setIcon("building-2");
         s4.setDescription("Provide corporate shareholder details and documents.");
-        s4.setSortOrder(4);
+        s4.setSortOrder(5);
         s4.setStatus("PUBLISHED");
         s4.setVersion(1);
         s4.setJourneyType("FOREIGNER");
@@ -626,7 +656,7 @@ public class OnboardingConfigController {
         sUbo.setTitle("Ultimate Beneficial Owner (UBO)");
         sUbo.setIcon("shield-check");
         sUbo.setDescription("Provide details and documents for Ultimate Beneficial Owners.");
-        sUbo.setSortOrder(5);
+        sUbo.setSortOrder(6);
         sUbo.setStatus("PUBLISHED");
         sUbo.setVersion(1);
         sUbo.setJourneyType("FOREIGNER");
@@ -650,7 +680,7 @@ public class OnboardingConfigController {
         s6.setTitle("Corporate Representative");
         s6.setIcon("user-cog");
         s6.setDescription("Upload Passport and Address Proof. Confirm contact details.");
-        s6.setSortOrder(6);
+        s6.setSortOrder(7);
         s6.setStatus("PUBLISHED");
         s6.setVersion(1);
         s6.setJourneyType("FOREIGNER");
@@ -677,7 +707,7 @@ public class OnboardingConfigController {
         s7.setIcon("file-signature");
         s7.setDescription("Please review all details and declare final consent before submitting your application.");
         s7.setDeclaration("");
-        s7.setSortOrder(7);
+        s7.setSortOrder(8);
         s7.setStatus("PUBLISHED");
         s7.setVersion(1);
         s7.setJourneyType("FOREIGNER");
