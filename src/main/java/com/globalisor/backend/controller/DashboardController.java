@@ -33,7 +33,9 @@ public class DashboardController {
 
     @GetMapping
     public ResponseEntity<?> getDashboardData() {
-        List<User> users = userRepository.findAll();
+        List<User> users = userRepository.findAll().stream()
+                .filter(u -> u.getRole() == null || (!u.getRole().equalsIgnoreCase("ADMIN") && !u.getRole().equalsIgnoreCase("STAFF")))
+                .collect(Collectors.toList());
         List<Requirement> requirements = requirementRepository.findAll();
 
         List<DashboardResponse.ClientInfo> clientInfos = users.stream().map(user -> {

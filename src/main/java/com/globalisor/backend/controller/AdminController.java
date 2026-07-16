@@ -13,6 +13,22 @@ import org.springframework.web.bind.annotation.*;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import com.globalisor.backend.security.EncryptionUtils;
+import com.globalisor.backend.model.Onboarding;
+import com.globalisor.backend.model.Kyc;
+import com.globalisor.backend.model.Compliance;
+import com.globalisor.backend.model.ClientDocument;
+import com.globalisor.backend.model.Message;
+import com.globalisor.backend.model.StarredMessage;
+import com.globalisor.backend.model.Invoice;
+import com.globalisor.backend.model.CallHistory;
+import com.globalisor.backend.repository.OnboardingRepository;
+import com.globalisor.backend.repository.KycRepository;
+import com.globalisor.backend.repository.ComplianceRepository;
+import com.globalisor.backend.repository.ClientDocumentRepository;
+import com.globalisor.backend.repository.MessageRepository;
+import com.globalisor.backend.repository.StarredMessageRepository;
+import com.globalisor.backend.repository.InvoiceRepository;
+import com.globalisor.backend.repository.CallHistoryRepository;
 
 import java.util.*;
 
@@ -38,6 +54,30 @@ public class AdminController {
 
     @Autowired
     EncryptionUtils encryptionUtils;
+
+    @Autowired
+    OnboardingRepository onboardingRepository;
+
+    @Autowired
+    KycRepository kycRepository;
+
+    @Autowired
+    ComplianceRepository complianceRepository;
+
+    @Autowired
+    ClientDocumentRepository clientDocumentRepository;
+
+    @Autowired
+    MessageRepository messageRepository;
+
+    @Autowired
+    StarredMessageRepository starredMessageRepository;
+
+    @Autowired
+    InvoiceRepository invoiceRepository;
+
+    @Autowired
+    CallHistoryRepository callHistoryRepository;
 
     @GetMapping("/clients/{id}/services")
     public ResponseEntity<?> getClientServices(@PathVariable String id) {
@@ -405,4 +445,31 @@ public class AdminController {
         userRepository.deleteById(id);
         return ResponseEntity.ok().build();
     }
+
+
+
+    @DeleteMapping("/clients")
+    public ResponseEntity<?> clearAllClients() {
+        List<User> allUsers = userRepository.findAll();
+        for (User u : allUsers) {
+            String role = u.getRole();
+            if (role == null || (!role.equalsIgnoreCase("ADMIN") && !role.equalsIgnoreCase("STAFF"))) {
+                userRepository.deleteById(u.getId());
+            }
+        }
+
+        requirementRepository.deleteAll();
+        onboardingRepository.deleteAll();
+        kycRepository.deleteAll();
+        complianceRepository.deleteAll();
+        clientDocumentRepository.deleteAll();
+        messageRepository.deleteAll();
+        starredMessageRepository.deleteAll();
+        invoiceRepository.deleteAll();
+        callHistoryRepository.deleteAll();
+        notificationRepository.deleteAll();
+
+        return ResponseEntity.ok(Map.of("success", true, "message", "Cleared all clients and all associated records."));
+    }
 }
+
