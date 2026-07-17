@@ -453,7 +453,14 @@ public class AdminController {
         List<User> allUsers = userRepository.findAll();
         for (User u : allUsers) {
             String role = u.getRole();
-            if (role == null || (!role.equalsIgnoreCase("ADMIN") && !role.equalsIgnoreCase("STAFF"))) {
+            boolean isClient = true;
+            if (role != null) {
+                String trimmedRole = role.trim();
+                if (trimmedRole.equalsIgnoreCase("ADMIN") || trimmedRole.equalsIgnoreCase("STAFF")) {
+                    isClient = false;
+                }
+            }
+            if (isClient) {
                 userRepository.deleteById(u.getId());
             }
         }

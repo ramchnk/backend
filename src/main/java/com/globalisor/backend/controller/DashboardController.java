@@ -34,7 +34,12 @@ public class DashboardController {
     @GetMapping
     public ResponseEntity<?> getDashboardData() {
         List<User> users = userRepository.findAll().stream()
-                .filter(u -> u.getRole() == null || (!u.getRole().equalsIgnoreCase("ADMIN") && !u.getRole().equalsIgnoreCase("STAFF")))
+                .filter(u -> {
+                    String role = u.getRole();
+                    if (role == null) return true;
+                    String trimmedRole = role.trim();
+                    return !trimmedRole.equalsIgnoreCase("ADMIN") && !trimmedRole.equalsIgnoreCase("STAFF");
+                })
                 .collect(Collectors.toList());
         List<Requirement> requirements = requirementRepository.findAll();
 

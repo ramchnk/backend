@@ -3,6 +3,7 @@ package com.globalisor.backend.config;
 import com.globalisor.backend.model.*;
 import com.globalisor.backend.repository.*;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
@@ -58,8 +59,43 @@ public class DataInitializer implements CommandLineRunner {
     @Autowired
     EncryptionUtils encryptionUtils;
 
+    @Value("${globalisor.app.seed:true}")
+    private boolean shouldSeed;
+
     @Override
     public void run(String... args) throws Exception {
+        // ALWAYS seed default admin/staff if not exists, regardless of shouldSeed flag
+        try {
+            String defaultPassword = encoder.encode("password123");
+            if (!userRepository.existsById("staff-admin")) {
+                User admin = new User("Admin", "Globalisor", "admin@globalisor.com", defaultPassword);
+                admin.setId("staff-admin");
+                admin.setRole("ADMIN");
+                userRepository.save(admin);
+                System.out.println("Seeded default admin@globalisor.com");
+            }
+            if (!userRepository.existsById("staff-sarah")) {
+                User staff = new User("Sarah", "Lim", "staff.sarah@globalisor.com", defaultPassword);
+                staff.setId("staff-sarah");
+                staff.setRole("STAFF");
+                staff.setPlainPassword("password123");
+                staff.setEmployeeId("GLOB-STF-1001");
+                staff.setDesignation("Lead Compliance Officer");
+                staff.setDepartment("AML & Operations");
+                staff.setCardStatus("ACTIVE");
+                staff.setCardIssueDate("2026-01-01");
+                staff.setCardValidUntil("2028-01-01");
+                userRepository.save(staff);
+                System.out.println("Seeded default staff.sarah@globalisor.com");
+            }
+        } catch (Exception e) {
+            System.err.println("Failed to seed default admin/staff: " + e.getMessage());
+        }
+
+        if (!shouldSeed) {
+            System.out.println("Mock seeding is disabled by configuration flag.");
+            return;
+        }
         // Auto-seed guest user for testing/onboarding fallback
         try {
             String encryptedGuestEmail = encryptionUtils.encryptQueryable("guest@globalisor.com");
