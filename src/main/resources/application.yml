@@ -16,7 +16,8 @@ globalisor:
   app:
     jwtSecret: globalisorSecretKeyThatIsVeryLongAndSecureEnoughForHS256Algorithm1234567890
     jwtExpirationMs: 86400000
+    seed: false
 
 gemini:
   api:
-    key: "[ENCRYPTION_KEY]"
+    key: "AIzaSyA4zdsYqh_W3AEgAq8RMxVi6KGQpiBiGEk"
