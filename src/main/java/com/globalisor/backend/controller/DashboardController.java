@@ -53,6 +53,7 @@ public class DashboardController {
             
             List<String> companyNames = new ArrayList<>();
             List<String> serviceTypes = new ArrayList<>();
+            List<String> nomineeDirectors = new ArrayList<>();
             int pendingCount = 0, approvedCount = 0, rejectedCount = 0;
             String latestStaff = "Unassigned";
 
@@ -67,6 +68,31 @@ public class DashboardController {
                         }
                     }
                 }
+                
+                // Parse nominee directors from excelData if present
+                if (data != null && data.containsKey("excelData")) {
+                    Object excelObj = data.get("excelData");
+                    if (excelObj instanceof Map) {
+                        Map<String, Object> excel = (Map<String, Object>) excelObj;
+                        if (excel.containsKey("directors")) {
+                            Object dirObj = excel.get("directors");
+                            if (dirObj instanceof List) {
+                                List<?> dirList = (List<?>) dirObj;
+                                for (Object dObj : dirList) {
+                                    if (dObj instanceof Map) {
+                                        Map<String, Object> dir = (Map<String, Object>) dObj;
+                                        Object typeObj = dir.get("type");
+                                        Object nameObj = dir.get("name");
+                                        if (typeObj != null && "Nominee Director".equalsIgnoreCase(typeObj.toString().trim()) && nameObj != null) {
+                                            nomineeDirectors.add(nameObj.toString());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Service type
                 Object sType = (data != null) ? data.get("serviceType") : null;
                 serviceTypes.add(sType != null ? sType.toString() : "Company Incorporation");
@@ -100,7 +126,8 @@ public class DashboardController {
                     serviceTypes,
                     latestStaff,
                     isOnline,
-                    lastSeen
+                    lastSeen,
+                    nomineeDirectors
             );
         }).collect(Collectors.toList());
 

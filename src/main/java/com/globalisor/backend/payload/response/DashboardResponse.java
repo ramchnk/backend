@@ -34,5 +34,6 @@ public class DashboardResponse {
         private String latestStaff;
         private boolean isOnline;
         private Long lastSeenTime;
+        private List<String> nomineeDirectors;
     }
 }
