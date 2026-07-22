@@ -238,6 +238,9 @@ public class MigrationController {
                     if (companyName != null) {
                         requirementData.put("names", Arrays.asList(companyName));
                     }
+                    if (rec.containsKey("documents")) {
+                        requirementData.put("documents", rec.get("documents"));
+                    }
                     requirement.setData(requirementData);
                     requirementRepository.save(requirement);
 
@@ -257,6 +260,9 @@ public class MigrationController {
             }
         }
 
+        if (records != null) {
+            job.setRecords(records);
+        }
         job.setProcessedRecords(success + failed + duplicates);
         job.setSuccessCount(success);
         job.setFailedCount(failed);
