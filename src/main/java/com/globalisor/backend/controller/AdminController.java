@@ -276,6 +276,70 @@ public class AdminController {
     @Autowired
     private com.globalisor.backend.service.NotificationService notificationService;
 
+    @PutMapping("/clients/{id}/company")
+    public ResponseEntity<?> updateClientCompanyProfile(@PathVariable String id, @RequestBody Map<String, Object> body) {
+        User user = userRepository.findAll().stream()
+                .filter(u -> u.getId() != null && u.getId().equalsIgnoreCase(id))
+                .findFirst()
+                .orElse(null);
+
+        Optional<Requirement> reqOpt = requirementRepository.findByUserId(id);
+        if (reqOpt.isEmpty()) {
+            reqOpt = requirementRepository.findAll().stream()
+                    .filter(r -> r.getUserId() != null && r.getUserId().equalsIgnoreCase(id))
+                    .findFirst();
+        }
+
+        Requirement requirement;
+        if (reqOpt.isPresent()) {
+            requirement = reqOpt.get();
+        } else {
+            requirement = new Requirement();
+            requirement.setId("SRV-" + System.currentTimeMillis());
+            requirement.setUserId(id);
+            requirement.setStatus("approved");
+            requirement.setStaff("Sarah Lim");
+        }
+
+        Map<String, Object> data = requirement.getData() != null ? requirement.getData() : new HashMap<>();
+        if (body.containsKey("details")) {
+            Object detailsObj = body.get("details");
+            if (detailsObj instanceof Map) {
+                data.putAll((Map<String, Object>) detailsObj);
+            }
+        }
+        if (body.containsKey("excelData")) {
+            data.put("excelData", body.get("excelData"));
+        }
+
+        if (body.containsKey("companyName") && body.get("companyName") != null) {
+            String cName = String.valueOf(body.get("companyName")).trim();
+            if (!cName.isEmpty() && !"null".equalsIgnoreCase(cName) && !"N/A".equalsIgnoreCase(cName)) {
+                if (user != null) {
+                    user.setFirstName(cName);
+                    user.setLastName("");
+                    user.setCompanyName(cName);
+                    userRepository.save(user);
+                }
+                data.put("names", Arrays.asList(cName));
+            }
+        }
+
+        if (body.containsKey("uen") && body.get("uen") != null) {
+            data.put("uen", String.valueOf(body.get("uen")).trim());
+        }
+
+        requirement.setData(data);
+        requirement.setUpdatedAt(new Date());
+        requirementRepository.save(requirement);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("message", "Company profile updated successfully.");
+        response.put("details", data);
+        return ResponseEntity.ok(response);
+    }
+
     @PatchMapping("/services/{id}")
     public ResponseEntity<?> updateServiceStatus(@PathVariable String id, @RequestBody Map<String, Object> body) {
         Optional<Requirement> reqOpt = requirementRepository.findById(id);
@@ -306,6 +370,36 @@ public class AdminController {
         if (body.containsKey("sectionStatuses")) {
             req.setSectionStatuses((Map<String, Map<String, Object>>) body.get("sectionStatuses"));
         }
+
+        if (body.containsKey("details")) {
+            Object detailsObj = body.get("details");
+            if (detailsObj instanceof Map) {
+                Map<String, Object> newDetails = (Map<String, Object>) detailsObj;
+                req.setData(newDetails);
+
+                if (newDetails.containsKey("excelData")) {
+                    Object exObj = newDetails.get("excelData");
+                    if (exObj instanceof Map) {
+                        Map<?, ?> ex = (Map<?, ?>) exObj;
+                        if (ex.containsKey("companyName") && ex.get("companyName") != null) {
+                            String cName = String.valueOf(ex.get("companyName")).trim();
+                            if (!cName.isEmpty() && !"null".equalsIgnoreCase(cName) && !"N/A".equalsIgnoreCase(cName)) {
+                                userRepository.findAll().stream()
+                                        .filter(u -> u.getId() != null && u.getId().equalsIgnoreCase(req.getUserId()))
+                                        .findFirst()
+                                        .ifPresent(u -> {
+                                            u.setFirstName(cName);
+                                            u.setLastName("");
+                                            u.setCompanyName(cName);
+                                            userRepository.save(u);
+                                        });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         req.setUpdatedAt(new Date());
         Requirement saved = requirementRepository.save(req);
 
