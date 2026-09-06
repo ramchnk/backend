@@ -377,10 +377,26 @@ public class BusinessIntelligenceController {
             replyText = sb.toString();
             replyType = "profile_completion_query";
         }
-        // 4.4 Change of Registered Office Address Document Query
-        else if (((q.contains("change of address") || q.contains("change address") || q.contains("registered office address") || (q.contains("address") && (q.contains("change") || q.contains("update") || q.contains("relocate") || q.contains("shift")))) &&
-                (q.contains("document") || q.contains("doc") || q.contains("resolution") || q.contains("driw") || q.contains("give me") || q.contains("get me") || q.contains("show me") || q.contains("prepare") || q.contains("generate")))
-                || q.equals("change of address") || q.equals("change address") || q.equals("driw change of address")) {
+        // Context memory check if user was clarifying a document appointment in previous turn
+        boolean wasClarifying = false;
+        if (thread.getMessages() != null && !thread.getMessages().isEmpty()) {
+            ChatThread.ChatMessage lastMsg = thread.getMessages().get(thread.getMessages().size() - 1);
+            if ("appointment_clarification".equals(lastMsg.getType())) {
+                wasClarifying = true;
+            }
+        }
+
+        // Strict Document Intent Check: user must mention document keywords
+        boolean hasDocIntent = q.contains("document") || q.contains("doc") || q.contains("docs") ||
+                q.contains("resolution") || q.contains("driw") || q.contains("form 45") || q.contains("form45") ||
+                q.contains("form-45") || q.contains("package") || q.contains("draft") ||
+                q.contains("prepare document") || q.contains("generate document") || q.contains("download document") ||
+                q.contains("appointment letter") || q.contains("consent letter");
+
+        boolean isExplicitOptionClick = q.equals("option 1") || q.equals("1") || q.equals("option 2") || q.equals("2");
+
+        // 4.4 Change of Registered Office Address Document Query (Strictly requires document intent)
+        if (hasDocIntent && (q.contains("change of address") || q.contains("change address") || (q.contains("address") && (q.contains("change") || q.contains("update") || q.contains("relocate") || q.contains("shift"))))) {
 
             NomineeAppointmentDocumentData docData = documentGenerationService.createDocumentDataFromRequirement(match, query, "change_of_address");
 
@@ -404,25 +420,22 @@ public class BusinessIntelligenceController {
             docCount = 1;
             response.put("documentType", "change_of_address");
         }
-        // 4.5 Appointment Document Generation Query & Clarification Flow
-        else if (q.equals("director") || q.equals("regular director") || q.equals("option 1") || q.equals("1") ||
-                q.equals("appointment of director") || q.equals("director appointment") || q.equals("director document") ||
-                (q.contains("director") && !q.contains("nominee") && !q.contains("nominie") && (q.startsWith("director") || q.contains("only director") || q.contains("standard director"))) ||
-                q.equals("nominee director") || q.equals("nominee") || q.equals("nominie") || q.equals("nominie director") ||
-                q.equals("option 2") || q.equals("2") || q.equals("appointment of nominee director") || q.equals("nominee director appointment") ||
-                q.equals("nominee director document") || (q.contains("nominee") && (q.startsWith("nominee") || q.startsWith("nominie") || q.contains("only nominee") || q.contains("selected nominee")))) {
+        // 4.5 Change / Appointment of Director Document Generation (Strictly when answering clarification OR document intent + director is present)
+        else if ((wasClarifying && (isExplicitOptionClick || q.equals("director") || q.equals("regular director") || q.equals("nominee director") || q.equals("nominee") || q.contains("director") || q.contains("nominee"))) ||
+                (hasDocIntent && (q.contains("director") || q.contains("directors") || q.contains("nominee") || q.contains("nominie")))) {
 
-            boolean isDirectDirector = q.equals("director") || q.equals("regular director") || q.equals("option 1") || q.equals("1") ||
-                    q.equals("appointment of director") || q.equals("director appointment") || q.equals("director document") ||
-                    (q.contains("director") && !q.contains("nominee") && !q.contains("nominie"));
+            boolean isDirectDirector = !q.contains("nominee") && !q.contains("nominie") && !q.equals("option 2") && !q.equals("2");
 
             String selectedType = isDirectDirector ? "director" : "nominee_director";
             NomineeAppointmentDocumentData docData = documentGenerationService.createDocumentDataFromRequirement(match, query, selectedType);
 
             StringBuilder sb = new StringBuilder();
             if ("director".equals(selectedType)) {
-                sb.append("📄 **Director Appointment Document Package Prepared (2 Documents)**\n\n");
-                sb.append("The statutory appointment documents have been prepared for **").append(docData.getCompanyName()).append("**:\n\n");
+                String titleHeader = (q.contains("change") || q.contains("update"))
+                        ? "📄 **Change of Director Resolution & Consent Package Prepared (2 Documents)**\n\n"
+                        : "📄 **Director Appointment Document Package Prepared (2 Documents)**\n\n";
+                sb.append(titleHeader);
+                sb.append("The statutory appointment and resolution documents have been prepared for **").append(docData.getCompanyName()).append("**:\n\n");
                 sb.append("1. **Directors’ Resolution in Writing (DRIW)** — Pursuant to Constitution of the Company\n");
                 sb.append("2. **ACRA Form 45** — Consent to Act as Director & Statement of Non-Disqualification\n\n");
                 sb.append("• **Company Name:** `").append(docData.getCompanyName()).append("`\n");
@@ -464,11 +477,8 @@ public class BusinessIntelligenceController {
             downloadUrl = "/api/admin/intelligence/document/" + docData.getId() + "/download?type=" + selectedType;
             response.put("documentType", selectedType);
         }
-        // Clarification prompt when user asks for appointment / director documents
-        else if (((q.contains("appointment") || q.contains("appoinment") || q.contains("appoint")) && (q.contains("director") || q.contains("nominee") || q.contains("nominie") || q.contains("document") || q.contains("doc") || q.contains("package"))) ||
-                (q.contains("document") && (q.contains("director") || q.contains("nominee") || q.contains("nominie"))) ||
-                (q.contains("give me") && (q.contains("director") || q.contains("nominee") || q.contains("nominie"))) ||
-                (q.contains("form 45") || q.contains("form45") || q.contains("consent to act as director"))) {
+        // Clarification prompt: ONLY when user explicitly asks for appointment documents without specifying director type
+        else if (hasDocIntent && (q.contains("appointment") || q.contains("appoint") || q.contains("form 45") || q.contains("form45") || q.contains("consent to act"))) {
 
             StringBuilder sb = new StringBuilder();
             sb.append("❓ **Director or nominee director?**\n\n");
@@ -486,8 +496,21 @@ public class BusinessIntelligenceController {
             replyType = "appointment_clarification";
             options = List.of("Director", "Nominee Director");
         }
-        // 5. Director Specific Queries
-        else if (q.contains("director") || q.contains("directors") || q.contains("nominee") || q.contains("nominie")) {
+        // 4.6 Address Informational Query (when user asks about address without document intent)
+        else if (q.contains("address") || q.contains("registered office") || q.contains("where is the office") || q.contains("location")) {
+            String addr = excel != null && excel.get("registeredOfficeAddress") != null ? excel.get("registeredOfficeAddress").toString() : "37A TOH CRESCENT SINGAPORE 507947";
+            StringBuilder sb = new StringBuilder();
+            sb.append("📍 **Registered Office Address: ").append(compName).append("**\n\n");
+            sb.append("• **Company Name:** `").append(compName).append("`\n");
+            sb.append("• **UEN:** `").append(uen).append("`\n");
+            sb.append("• **Registered Address:** `").append(addr).append("`\n");
+            sb.append("• **Jurisdiction:** `Singapore`\n\n");
+            sb.append("💡 *If you would like to prepare a DRIW resolution to change this address, ask: 'Give me change of address document'.*");
+            replyText = sb.toString();
+            replyType = "registered_address_query";
+        }
+        // 5. Director Specific Queries (Returns Directors List and Details directly)
+        else if (q.contains("director") || q.contains("directors") || q.contains("nominee") || q.contains("nominie") || q.contains("board")) {
             List<?> dirList = excel != null && excel.get("directors") instanceof List ? (List<?>) excel.get("directors") : new ArrayList<>();
 
             List<Map<?, ?>> activeDirs = new ArrayList<>();
@@ -508,7 +531,7 @@ public class BusinessIntelligenceController {
                 }
             }
 
-            boolean isNomineeQuery = q.contains("nominee") || q.contains("nominie");
+            boolean isNomineeQuery = (q.contains("nominee") || q.contains("nominie")) && !q.contains("list") && !q.contains("all");
 
             if (isNomineeQuery) {
                 List<Map<?, ?>> nomineeDirs = new ArrayList<>();
@@ -540,12 +563,14 @@ public class BusinessIntelligenceController {
                         String type = d.get("type") != null ? d.get("type").toString() : "Nominee Director";
                         String appDate = d.get("appointmentDate") != null ? d.get("appointmentDate").toString() : "—";
                         String nat = d.get("nationality") != null ? d.get("nationality").toString() : "—";
+                        String idNum = d.get("idNumber") != null ? d.get("idNumber").toString() : (d.get("nric") != null ? d.get("nric").toString() : "—");
                         String addr = d.get("address") != null ? d.get("address").toString() : "—";
                         String email = d.get("email") != null ? d.get("email").toString() : "N/A";
                         String phone = d.get("phone") != null ? d.get("phone").toString() : (d.get("mobile") != null ? d.get("mobile").toString() : "N/A");
 
                         sb.append(idx++).append(". **").append(name).append("**\n");
                         sb.append("   • Designation: `").append(type).append("`\n");
+                        sb.append("   • ID / Passport: `").append(idNum).append("`\n");
                         sb.append("   • Appointed On: `").append(appDate).append("`\n");
                         sb.append("   • Nationality: `").append(nat).append("`\n");
                         if (!"N/A".equalsIgnoreCase(email) || !"N/A".equalsIgnoreCase(phone)) {
@@ -562,26 +587,34 @@ public class BusinessIntelligenceController {
                 replyType = "nominee_director_summary";
             } else {
                 StringBuilder sb = new StringBuilder();
-                sb.append("👨‍💼 **Directors Register & Info: ").append(compName).append("**\n\n");
+                sb.append("👨‍💼 **Directors Register & Details: ").append(compName).append("**\n\n");
                 sb.append("• **Total Listed Directors:** `").append(dirList.size()).append("` (`").append(activeDirs.size()).append(" Active`, `").append(formerDirs.size()).append(" Former`)\n\n");
 
-                sb.append("🟢 **Current Active Directors (").append(activeDirs.size()).append("):**\n");
-                int idx = 1;
-                for (Map<?, ?> d : activeDirs) {
-                    String name = d.get("name") != null ? d.get("name").toString() : "Unknown Director";
-                    String type = d.get("type") != null ? d.get("type").toString() : "Director";
-                    String appDate = d.get("appointmentDate") != null ? d.get("appointmentDate").toString() : "—";
-                    String nat = d.get("nationality") != null ? d.get("nationality").toString() : "—";
-                    String addr = d.get("address") != null ? d.get("address").toString() : "—";
-                    String email = d.get("email") != null ? d.get("email").toString() : "N/A";
-                    String phone = d.get("phone") != null ? d.get("phone").toString() : (d.get("mobile") != null ? d.get("mobile").toString() : "N/A");
+                if (!activeDirs.isEmpty()) {
+                    sb.append("🟢 **Current Active Directors (").append(activeDirs.size()).append("):**\n");
+                    int idx = 1;
+                    for (Map<?, ?> d : activeDirs) {
+                        String name = d.get("name") != null ? d.get("name").toString() : "Unknown Director";
+                        String type = d.get("type") != null ? d.get("type").toString() : "Director";
+                        String appDate = d.get("appointmentDate") != null ? d.get("appointmentDate").toString() : "—";
+                        String nat = d.get("nationality") != null ? d.get("nationality").toString() : "—";
+                        String idNum = d.get("idNumber") != null ? d.get("idNumber").toString() : (d.get("nric") != null ? d.get("nric").toString() : "—");
+                        String addr = d.get("address") != null ? d.get("address").toString() : "—";
+                        String email = d.get("email") != null ? d.get("email").toString() : "N/A";
+                        String phone = d.get("phone") != null ? d.get("phone").toString() : (d.get("mobile") != null ? d.get("mobile").toString() : "N/A");
 
-                    sb.append(idx++).append(". **").append(name).append("**\n");
-                    sb.append("   • Designation: `").append(type).append("`\n");
-                    sb.append("   • Appointed On: `").append(appDate).append("`\n");
-                    sb.append("   • Nationality: `").append(nat).append("`\n");
-                    sb.append("   • Contact: `").append(email).append("` | `").append(phone).append("`\n");
-                    sb.append("   • Address: `").append(addr).append("`\n\n");
+                        sb.append(idx++).append(". **").append(name).append("**\n");
+                        sb.append("   • Designation: `").append(type).append("`\n");
+                        sb.append("   • ID / Passport: `").append(idNum).append("`\n");
+                        sb.append("   • Appointed On: `").append(appDate).append("`\n");
+                        sb.append("   • Nationality: `").append(nat).append("`\n");
+                        if (!"N/A".equalsIgnoreCase(email) || !"N/A".equalsIgnoreCase(phone)) {
+                            sb.append("   • Contact: `").append(email).append("` | `").append(phone).append("`\n");
+                        }
+                        sb.append("   • Address: `").append(addr).append("`\n\n");
+                    }
+                } else {
+                    sb.append("No active directors listed for **").append(compName).append("**.\n\n");
                 }
 
                 if (!formerDirs.isEmpty()) {
