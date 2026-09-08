@@ -326,6 +326,24 @@ public class BusinessIntelligenceController {
         String downloadUrl = null;
         Integer docCount = null;
 
+        // Context memory check if user was clarifying a document appointment in previous turn
+        boolean wasClarifying = false;
+        if (thread.getMessages() != null && !thread.getMessages().isEmpty()) {
+            ChatThread.ChatMessage lastMsg = thread.getMessages().get(thread.getMessages().size() - 1);
+            if ("appointment_clarification".equals(lastMsg.getType())) {
+                wasClarifying = true;
+            }
+        }
+
+        // Strict Document Intent Check: user must mention document keywords
+        boolean hasDocIntent = q.contains("document") || q.contains("doc") || q.contains("docs") ||
+                q.contains("resolution") || q.contains("driw") || q.contains("form 45") || q.contains("form45") ||
+                q.contains("form-45") || q.contains("package") || q.contains("draft") ||
+                q.contains("prepare document") || q.contains("generate document") || q.contains("download document") ||
+                q.contains("appointment letter") || q.contains("consent letter");
+
+        boolean isExplicitOptionClick = q.equals("option 1") || q.equals("1") || q.equals("option 2") || q.equals("2");
+
         // 1. UEN Query
         if (q.contains("uen") || q.contains("unique entity number")) {
             StringBuilder sb = new StringBuilder();
@@ -349,7 +367,7 @@ public class BusinessIntelligenceController {
             replyType = "company_type_query";
         }
         // 3. Incorporation Date & Age Query
-        else if (q.contains("incorporat") || q.contains("age") || q.contains("how old") || (q.contains("when") && q.contains("company"))) {
+        else if (q.contains("incorporat") || q.matches(".*\\bage\\b.*") || q.contains("how old") || (q.contains("when") && q.contains("company"))) {
             String incDateStr = excel != null && excel.get("incorporationDate") != null ? excel.get("incorporationDate").toString() :
                     (excel != null && excel.get("dateOfIncorporation") != null ? excel.get("dateOfIncorporation").toString() : "2016-01-26");
             String age = calculateAge(incDateStr);
@@ -361,6 +379,50 @@ public class BusinessIntelligenceController {
             sb.append("• **Jurisdiction:** `Singapore`\n");
             replyText = sb.toString();
             replyType = "incorporation_age_query";
+        }
+        // 3.5 Financial Year End (FYE) & Statutory Deadlines Query
+        else if (q.contains("fye") || q.contains("financial year") || q.contains("year end") || q.contains("accounting year") || q.contains("fiscal year") || q.contains("agm") || q.contains("annual return") || q.contains("annual general meeting") || q.contains("xbrl") || q.contains("statutory deadline") || q.contains("compliance deadline") || q.contains("due date")) {
+            String rawFye = null;
+            if (excel != null && excel.get("fye") != null && !excel.get("fye").toString().trim().isEmpty()) {
+                rawFye = excel.get("fye").toString().trim();
+            } else if (data != null && data.get("details") instanceof Map && ((Map<?, ?>) data.get("details")).get("fye") != null && !((Map<?, ?>) data.get("details")).get("fye").toString().trim().isEmpty()) {
+                rawFye = ((Map<?, ?>) data.get("details")).get("fye").toString().trim();
+            } else if (data != null && data.get("fye") != null && !data.get("fye").toString().trim().isEmpty()) {
+                rawFye = data.get("fye").toString().trim();
+            } else if (excel != null && excel.get("financialYearEnd") != null) {
+                rawFye = excel.get("financialYearEnd").toString().trim();
+            }
+            if (rawFye == null || rawFye.isEmpty() || rawFye.equals("—")) {
+                rawFye = "31 Dec";
+            }
+
+            String agmVal = excel != null && excel.get("agm") != null ? excel.get("agm").toString().trim() :
+                    (excel != null && excel.get("lastAgm") != null ? excel.get("lastAgm").toString().trim() : "Not Held Yet (Due within 6 months of FYE)");
+            String arVal = excel != null && excel.get("ar") != null ? excel.get("ar").toString().trim() :
+                    (excel != null && excel.get("annualReturn") != null ? excel.get("annualReturn").toString().trim() : "Not Filed Yet (Due within 7 months of FYE)");
+            String xbrlVal = excel != null && excel.get("xbrl") != null ? excel.get("xbrl").toString().trim() : "Exempt (Solvent EPC)";
+
+            String annualCycle = rawFye.replaceAll("(?i)\\s*\\d{4}$", "").trim();
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("🗓️ **Financial Year End (FYE) & Statutory Deadlines: ").append(compName).append("**\n\n");
+            sb.append("• **Company Name:** ").append(compName).append("\n");
+            sb.append("• **UEN:** `").append(uen).append("`\n");
+            sb.append("• **Financial Year End (FYE):** `").append(rawFye).append("` (Recurrence: *Every year on ").append(annualCycle.isEmpty() ? rawFye : annualCycle).append("*)\n\n");
+            sb.append("📋 **ACRA Singapore Statutory Compliance Timelines:**\n");
+            sb.append("1. **Annual General Meeting (AGM):**\n");
+            sb.append("   • **ACRA Rule:** Due within **6 months** after Financial Year End\n");
+            sb.append("   • **Status / Date:** `").append(agmVal).append("`\n\n");
+            sb.append("2. **Annual Return (AR) Filing:**\n");
+            sb.append("   • **ACRA Rule:** Due within **7 months** after FYE (or within 30 days of AGM)\n");
+            sb.append("   • **Status / Date:** `").append(arVal).append("`\n\n");
+            sb.append("3. **XBRL Financial Statements Filing:**\n");
+            sb.append("   • **ACRA Rule:** Due within **7 months** after FYE\n");
+            sb.append("   • **Status:** `").append(xbrlVal).append("`\n\n");
+            sb.append("💡 *You can view or update the FYE and statutory filing dates in the **Overview Tab** of the Company Details workspace (`admin/company-detail.html`).*");
+
+            replyText = sb.toString();
+            replyType = "fye_compliance_query";
         }
         // 4. Profile Completion & Editing Query
         else if (q.contains("completion") || q.contains("profile status") || q.contains("where can i edit") || q.contains("edit profile") || (q.contains("edit") && q.contains("detail"))) {
@@ -377,26 +439,8 @@ public class BusinessIntelligenceController {
             replyText = sb.toString();
             replyType = "profile_completion_query";
         }
-        // Context memory check if user was clarifying a document appointment in previous turn
-        boolean wasClarifying = false;
-        if (thread.getMessages() != null && !thread.getMessages().isEmpty()) {
-            ChatThread.ChatMessage lastMsg = thread.getMessages().get(thread.getMessages().size() - 1);
-            if ("appointment_clarification".equals(lastMsg.getType())) {
-                wasClarifying = true;
-            }
-        }
-
-        // Strict Document Intent Check: user must mention document keywords
-        boolean hasDocIntent = q.contains("document") || q.contains("doc") || q.contains("docs") ||
-                q.contains("resolution") || q.contains("driw") || q.contains("form 45") || q.contains("form45") ||
-                q.contains("form-45") || q.contains("package") || q.contains("draft") ||
-                q.contains("prepare document") || q.contains("generate document") || q.contains("download document") ||
-                q.contains("appointment letter") || q.contains("consent letter");
-
-        boolean isExplicitOptionClick = q.equals("option 1") || q.equals("1") || q.equals("option 2") || q.equals("2");
-
         // 4.4 Change of Registered Office Address Document Query (Strictly requires document intent)
-        if (hasDocIntent && (q.contains("change of address") || q.contains("change address") || (q.contains("address") && (q.contains("change") || q.contains("update") || q.contains("relocate") || q.contains("shift"))))) {
+        else if (hasDocIntent && (q.contains("change of address") || q.contains("change address") || (q.contains("address") && (q.contains("change") || q.contains("update") || q.contains("relocate") || q.contains("shift"))))) {
 
             NomineeAppointmentDocumentData docData = documentGenerationService.createDocumentDataFromRequirement(match, query, "change_of_address");
 
@@ -688,27 +732,99 @@ public class BusinessIntelligenceController {
             replyText = sb.toString();
             replyType = "secretary_summary";
         }
-        // 7. Shareholder Queries
-        else if (q.contains("shareholder") || q.contains("member") || q.contains("owner") || q.contains("capital") || q.contains("share")) {
-            List<?> memberList = excel != null && excel.get("members") instanceof List ? (List<?>) excel.get("members") : new ArrayList<>();
+        // 7. Shareholder & Capital Queries
+        else if (q.contains("shareholder") || q.contains("member") || q.contains("owner") || q.contains("capital") || q.contains("share") || q.contains("percentage") || q.contains("holding")) {
+            List<?> memberList = excel != null && excel.get("members") instanceof List ? (List<?>) excel.get("members") :
+                    (excel != null && excel.get("shareholders") instanceof List ? (List<?>) excel.get("shareholders") : new ArrayList<>());
+
+            // Compute total active shares
+            long totalSharesAcrossActive = 0;
+            List<Map<String, Object>> activeMembers = new ArrayList<>();
+
+            for (Object mObj : memberList) {
+                if (mObj instanceof Map) {
+                    Map<String, Object> m = new HashMap<>();
+                    for (Map.Entry<?, ?> entry : ((Map<?, ?>) mObj).entrySet()) {
+                        if (entry.getKey() != null) {
+                            m.put(entry.getKey().toString(), entry.getValue());
+                        }
+                    }
+
+                    String status = m.get("status") != null ? m.get("status").toString().toLowerCase() : "";
+                    String dateCeased = m.get("dateCeased") != null ? m.get("dateCeased").toString().trim() : "";
+                    boolean isCeased = status.contains("ceased") || status.contains("cancelled") || status.contains("strikeout") ||
+                            (!dateCeased.isEmpty() && !dateCeased.equals("—") && !dateCeased.equals("-"));
+
+                    if (!isCeased) {
+                        String rawShares = m.get("shares") != null ? m.get("shares").toString() :
+                                (m.get("numberOfShares") != null ? m.get("numberOfShares").toString() :
+                                        (m.get("sharesHeld") != null ? m.get("sharesHeld").toString() :
+                                                (m.get("ordinaryShares") != null ? m.get("ordinaryShares").toString() : "0")));
+                        long sVal = 0;
+                        try {
+                            sVal = Long.parseLong(rawShares.replaceAll("[^0-9]", ""));
+                        } catch (Exception ignored) {}
+                        m.put("_parsedShares", sVal);
+                        totalSharesAcrossActive += sVal;
+                        activeMembers.add(m);
+                    }
+                }
+            }
 
             StringBuilder sb = new StringBuilder();
             sb.append("👥 **Shareholders Register: ").append(compName).append("**\n\n");
-            sb.append("There are **").append(memberList.size()).append(" Registered Shareholders** in ").append(compName).append(":\n\n");
+            if (totalSharesAcrossActive > 0) {
+                sb.append("• **Total Issued Shares:** `").append(String.format("%,d", totalSharesAcrossActive)).append(" shares`\n");
+            }
+            sb.append("• **Total Registered Shareholders:** `").append(activeMembers.size()).append(" Shareholders`\n\n");
 
             int idx = 1;
-            for (Object mObj : memberList) {
-                if (mObj instanceof Map) {
-                    Map<?, ?> m = (Map<?, ?>) mObj;
-                    String name = m.get("name") != null ? m.get("name").toString() : "Unknown Shareholder";
-                    String shares = m.get("shares") != null ? m.get("shares").toString() : "500";
-                    String currency = m.get("currency") != null ? m.get("currency").toString() : "USD";
-                    String pct = m.get("percentage") != null ? m.get("percentage").toString() : "50%";
+            for (Map<String, Object> m : activeMembers) {
+                String name = m.get("name") != null ? m.get("name").toString().trim() : "Unknown Shareholder";
+                long sVal = m.get("_parsedShares") instanceof Long ? (Long) m.get("_parsedShares") : 0L;
+                String sharesStr = sVal > 0 ? String.format("%,d", sVal) : (m.get("shares") != null ? m.get("shares").toString() : "0");
+                String currency = m.get("currency") != null ? m.get("currency").toString().trim() :
+                        (excel != null && excel.get("currency") != null ? excel.get("currency").toString().trim() : "USD");
 
-                    sb.append(idx++).append(". **").append(name).append("**\n");
-                    sb.append("   • Shareholding: `").append(shares).append(" shares` (`").append(pct).append("`)\n");
-                    sb.append("   • Currency: `").append(currency).append("`\n\n");
+                String pct = "";
+                if (m.get("percentage") != null && !m.get("percentage").toString().trim().isEmpty()) {
+                    pct = m.get("percentage").toString().trim();
+                    if (!pct.endsWith("%")) {
+                        try {
+                            double p = Double.parseDouble(pct.replace(",", ""));
+                            pct = (p == (long) p) ? String.format("%d%%", (long) p) : String.format("%.2f%%", p);
+                        } catch (Exception ignored) {
+                            pct = pct + "%";
+                        }
+                    }
+                } else if (m.get("ownershipPercentage") != null && !m.get("ownershipPercentage").toString().trim().isEmpty()) {
+                    pct = m.get("ownershipPercentage").toString().trim();
+                    if (!pct.endsWith("%")) pct = pct + "%";
                 }
+
+                if (pct.isEmpty() || pct.equals("0%") || pct.equals("0.00%")) {
+                    if (totalSharesAcrossActive > 0 && sVal > 0) {
+                        double calculatedPct = (sVal / (double) totalSharesAcrossActive) * 100.0;
+                        pct = (calculatedPct == (long) calculatedPct) ? String.format("%d%%", (long) calculatedPct) : String.format("%.2f%%", calculatedPct);
+                    } else if (activeMembers.size() == 1) {
+                        pct = "100%";
+                    } else {
+                        pct = "100%";
+                    }
+                }
+
+                sb.append(idx++).append(". **").append(name).append("**\n");
+                sb.append("   • Shareholding: `").append(sharesStr).append(" shares` (**").append(pct).append("**)\n");
+                sb.append("   • Currency: `").append(currency).append("`\n");
+                if (m.get("paidAmount") != null || m.get("consideration") != null || m.get("amount") != null) {
+                    String paid = m.get("paidAmount") != null ? m.get("paidAmount").toString() :
+                            (m.get("consideration") != null ? m.get("consideration").toString() : m.get("amount").toString());
+                    try {
+                        double pVal = Double.parseDouble(paid.replaceAll("[^0-9.]", ""));
+                        sb.append("   • Total Paid Value: `").append(currency).append(" ").append(String.format("%,.2f", pVal)).append("`\n");
+                    } catch (Exception ignored) {}
+                }
+                sb.append("\n");
             }
 
             replyText = sb.toString();
@@ -749,7 +865,9 @@ public class BusinessIntelligenceController {
             sb.append("Active Context Entity: **").append(compName).append("** (`").append(uen).append("`)\n\n");
             sb.append("You can ask questions like:\n");
             sb.append("👉 *'What is the UEN?'*\n");
+            sb.append("👉 *'What is the Financial Year End (FYE)?'*\n");
             sb.append("👉 *'Who are the current directors?'*\n");
+            sb.append("👉 *'What is the share percentage?'*\n");
             sb.append("👉 *'Who is the company secretary?'*\n");
             sb.append("👉 *'Give me document of nominee director'*\n");
             sb.append("👉 *'Give me document of change of address'*");
