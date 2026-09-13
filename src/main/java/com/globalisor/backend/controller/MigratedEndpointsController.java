@@ -598,13 +598,17 @@ public class MigratedEndpointsController {
 
     // --- DOCUMENT ENDPOINTS ---
     @GetMapping("/documents")
-    public ResponseEntity<List<Map<String, Object>>> getAllDocuments(@RequestParam(required = false) String clientId) {
+    public ResponseEntity<List<Map<String, Object>>> getAllDocuments(
+            @RequestParam(value = "clientId", required = false) String clientId,
+            @RequestParam(value = "companyName", required = false) String filterCompanyName) {
         List<ClientDocument> documents;
         if (clientId != null && !clientId.trim().isEmpty()) {
             documents = clientDocumentRepository.findByClientId(clientId.trim());
-            if (documents.isEmpty()) {
-                documents = generateClientDocumentSuite(clientId.trim());
+            if (documents.isEmpty() && filterCompanyName != null && !filterCompanyName.trim().isEmpty()) {
+                documents = clientDocumentRepository.findByCompanyNameIgnoreCase(filterCompanyName.trim());
             }
+        } else if (filterCompanyName != null && !filterCompanyName.trim().isEmpty()) {
+            documents = clientDocumentRepository.findByCompanyNameIgnoreCase(filterCompanyName.trim());
         } else {
             documents = clientDocumentRepository.findAll();
         }

@@ -23,9 +23,10 @@ public class TaskController {
             @RequestParam(required = false) String priority,
             @RequestParam(required = false) String category,
             @RequestParam(required = false) String clientId,
+            @RequestParam(required = false) String companyName,
             @RequestParam(required = false) String assignedToId
     ) {
-        return ResponseEntity.ok(taskService.getAllTasks(status, priority, category, clientId, assignedToId));
+        return ResponseEntity.ok(taskService.getAllTasks(status, priority, category, clientId, companyName, assignedToId));
     }
 
     @GetMapping("/{id}")

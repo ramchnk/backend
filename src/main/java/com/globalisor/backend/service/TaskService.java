@@ -157,7 +157,7 @@ public class TaskService {
         return taskRepository.save(existing);
     }
 
-    public List<Task> getAllTasks(String status, String priority, String category, String clientId, String assignedToId) {
+    public List<Task> getAllTasks(String status, String priority, String category, String clientId, String companyName, String assignedToId) {
         List<Task> all = taskRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
         return all.stream().filter(task -> {
             if (status != null && !status.isEmpty() && !status.equalsIgnoreCase("ALL") && !status.equalsIgnoreCase(task.getStatus())) {
@@ -169,8 +169,13 @@ public class TaskService {
             if (category != null && !category.isEmpty() && !category.equalsIgnoreCase("ALL") && !category.equalsIgnoreCase(task.getCategory())) {
                 return false;
             }
-            if (clientId != null && !clientId.isEmpty() && !clientId.equals(task.getClientId())) {
+            if (clientId != null && !clientId.isEmpty() && !clientId.equalsIgnoreCase("ALL") && !clientId.equalsIgnoreCase(task.getClientId())) {
                 return false;
+            }
+            if (companyName != null && !companyName.isEmpty() && !companyName.equalsIgnoreCase("ALL")) {
+                if (task.getCompanyName() == null || !task.getCompanyName().trim().equalsIgnoreCase(companyName.trim())) {
+                    return false;
+                }
             }
             if (assignedToId != null && !assignedToId.isEmpty()) {
                 if (assignedToId.equalsIgnoreCase("UNASSIGNED")) {

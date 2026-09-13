@@ -92,6 +92,7 @@ public class DocumentMigrationController {
     public ResponseEntity<Map<String, Object>> getClientDocuments(
             @PathVariable("clientId") String clientId,
             @RequestParam(value = "tenantId", defaultValue = "greenbridge") String tenantId,
+            @RequestParam(value = "companyName", required = false) String companyName,
             @RequestParam(value = "category", required = false) String category,
             @RequestParam(value = "module", required = false) String module) {
 
@@ -105,16 +106,15 @@ public class DocumentMigrationController {
         }
 
         if (docs == null || docs.isEmpty()) {
-            String cleanId = clientId.replace("C-", "");
+            String cleanId = clientId != null ? clientId.replace("C-", "") : "";
             List<ClientDocument> all = clientDocumentRepository.findAll();
             docs = new ArrayList<>();
             for (ClientDocument d : all) {
-                if (d.getClientId() != null && (d.getClientId().contains(cleanId) || clientId.contains(d.getClientId()))) {
+                if (d.getClientId() != null && !cleanId.isEmpty() && (d.getClientId().equalsIgnoreCase(cleanId) || d.getClientId().equalsIgnoreCase(clientId))) {
+                    docs.add(d);
+                } else if (companyName != null && !companyName.trim().isEmpty() && d.getCompanyName() != null && d.getCompanyName().equalsIgnoreCase(companyName.trim())) {
                     docs.add(d);
                 }
-            }
-            if (docs.isEmpty() && !all.isEmpty()) {
-                docs = all; // Fallback to all migrated client documents if specific ID is missing
             }
         }
 
