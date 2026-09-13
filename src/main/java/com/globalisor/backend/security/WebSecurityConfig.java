@@ -98,6 +98,7 @@ public class WebSecurityConfig {
                         .requestMatchers("/api/ocr/**").permitAll()
                         .requestMatchers("/api/onboarding-config", "/api/onboarding-config/**").permitAll()
                         .requestMatchers("/api/admin/intelligence/**").permitAll()
+                        .requestMatchers("/api/tasks", "/api/tasks/**").permitAll()
                         .requestMatchers("/error").permitAll()
                         .anyRequest().authenticated()
                 );
