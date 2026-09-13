@@ -2,6 +2,8 @@ package com.globalisor.backend.service;
 
 import com.globalisor.backend.model.Task;
 import com.globalisor.backend.repository.TaskRepository;
+import com.globalisor.backend.repository.UserRepository;
+import com.globalisor.backend.repository.OnboardingRepository;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Sort;
@@ -14,6 +16,12 @@ public class TaskService {
 
     @Autowired
     private TaskRepository taskRepository;
+
+    @Autowired(required = false)
+    private UserRepository userRepository;
+
+    @Autowired(required = false)
+    private OnboardingRepository onboardingRepository;
 
     @Autowired
     private NotificationService notificationService;
@@ -447,6 +455,172 @@ public class TaskService {
         stats.put("urgent", urgent);
         stats.put("unassigned", unassigned);
         return stats;
+    }
+
+    public Map<String, Object> getTaskFormOptions() {
+        Map<String, Map<String, Object>> entityMap = new LinkedHashMap<>();
+
+        // 1. Collect entities from Onboarding
+        if (onboardingRepository != null) {
+            try {
+                onboardingRepository.findAll().forEach(o -> {
+                    String compName = o.getClientName();
+                    // Check if company details are available or client name
+                    if (compName != null && !compName.trim().isEmpty() && !"N/A".equalsIgnoreCase(compName.trim())) {
+                        String key = compName.trim().toUpperCase();
+                        if (!entityMap.containsKey(key)) {
+                            Map<String, Object> item = new HashMap<>();
+                            item.put("companyId", o.getId() != null ? o.getId() : "COMP-" + o.getClientId());
+                            item.put("companyName", compName.trim());
+                            item.put("clientId", o.getClientId() != null ? o.getClientId() : "C-1001");
+                            item.put("clientName", o.getClientName() != null ? o.getClientName() : "Client User");
+                            item.put("clientEmail", o.getClientEmail() != null ? o.getClientEmail() : "client@globalisor.com");
+                            entityMap.put(key, item);
+                        }
+                    }
+                });
+            } catch (Exception ignored) {}
+        }
+
+        // 2. Collect entities from Users
+        if (userRepository != null) {
+            try {
+                userRepository.findAll().forEach(u -> {
+                    String compName = u.getCompanyName();
+                    if (compName != null && !compName.trim().isEmpty() && !"N/A".equalsIgnoreCase(compName.trim())) {
+                        String key = compName.trim().toUpperCase();
+                        if (!entityMap.containsKey(key)) {
+                            Map<String, Object> item = new HashMap<>();
+                            item.put("companyId", "COMP-" + (u.getId() != null ? u.getId() : "101"));
+                            item.put("companyName", compName.trim());
+                            item.put("clientId", u.getId() != null ? u.getId() : "C-1001");
+                            String name = ((u.getFirstName() != null ? u.getFirstName() : "") + " " + (u.getLastName() != null ? u.getLastName() : "")).trim();
+                            item.put("clientName", !name.isEmpty() ? name : "Client User");
+                            item.put("clientEmail", u.getEmail() != null ? u.getEmail() : "client@globalisor.com");
+                            entityMap.put(key, item);
+                        }
+                    }
+                });
+            } catch (Exception ignored) {}
+        }
+
+        // 3. Collect entities from existing tasks
+        try {
+            taskRepository.findAll().forEach(t -> {
+                String compName = t.getCompanyName();
+                if (compName != null && !compName.trim().isEmpty() && !"N/A".equalsIgnoreCase(compName.trim())) {
+                    String key = compName.trim().toUpperCase();
+                    if (!entityMap.containsKey(key)) {
+                        Map<String, Object> item = new HashMap<>();
+                        item.put("companyId", t.getCompanyId() != null ? t.getCompanyId() : "COMP-101");
+                        item.put("companyName", compName.trim());
+                        item.put("clientId", t.getClientId() != null ? t.getClientId() : "C-1001");
+                        item.put("clientName", t.getClientName() != null ? t.getClientName() : "Client User");
+                        item.put("clientEmail", t.getClientEmail() != null ? t.getClientEmail() : "client@globalisor.com");
+                        entityMap.put(key, item);
+                    }
+                }
+            });
+        } catch (Exception ignored) {}
+
+        if (entityMap.isEmpty()) {
+            Map<String, Object> defaultComp = new HashMap<>();
+            defaultComp.put("companyId", "COMP-101");
+            defaultComp.put("companyName", "ABBEY HOLDINGS PTE LTD");
+            defaultComp.put("clientId", "C-1001");
+            defaultComp.put("clientName", "Ethan Tan");
+            defaultComp.put("clientEmail", "ethan@abbey.com");
+            entityMap.put("ABBEY HOLDINGS PTE LTD", defaultComp);
+        }
+
+        List<Map<String, Object>> companies = new ArrayList<>(entityMap.values());
+        companies.sort((a, b) -> ((String) a.get("companyName")).compareToIgnoreCase((String) b.get("companyName")));
+
+        // 4. Collect Specialists / Assignees
+        List<Map<String, Object>> assignees = new ArrayList<>();
+        if (userRepository != null) {
+            try {
+                userRepository.findAll().stream()
+                        .filter(u -> "STAFF".equalsIgnoreCase(u.getRole()) || "ADMIN".equalsIgnoreCase(u.getRole()))
+                        .forEach(u -> {
+                            String name = ((u.getFirstName() != null ? u.getFirstName() : "") + " " + (u.getLastName() != null ? u.getLastName() : "")).trim();
+                            if (name.isEmpty()) {
+                                name = "ADMIN".equalsIgnoreCase(u.getRole()) ? "Admin User" : "Staff Specialist";
+                            }
+                            String avatar = "ST";
+                            if (u.getFirstName() != null && !u.getFirstName().isEmpty()) {
+                                avatar = String.valueOf(u.getFirstName().charAt(0)).toUpperCase();
+                                if (u.getLastName() != null && !u.getLastName().isEmpty()) {
+                                    avatar += String.valueOf(u.getLastName().charAt(0)).toUpperCase();
+                                }
+                            }
+                            Map<String, Object> staff = new HashMap<>();
+                            staff.put("id", u.getId());
+                            staff.put("name", name);
+                            staff.put("role", u.getRole() != null ? u.getRole().toUpperCase() : "STAFF");
+                            staff.put("email", u.getEmail() != null ? u.getEmail() : "");
+                            staff.put("avatar", avatar);
+                            assignees.add(staff);
+                        });
+            } catch (Exception ignored) {}
+        }
+
+        if (assignees.stream().noneMatch(s -> "ADMIN".equalsIgnoreCase((String) s.get("role")) || "usr-admin".equals(s.get("id")))) {
+            Map<String, Object> admin = new HashMap<>();
+            admin.put("id", "usr-admin");
+            admin.put("name", "Admin User");
+            admin.put("role", "ADMIN");
+            admin.put("email", "admin@globalisor.com");
+            admin.put("avatar", "AU");
+            assignees.add(0, admin);
+        }
+        if (assignees.stream().noneMatch(s -> "usr-staff".equals(s.get("id")))) {
+            Map<String, Object> staff = new HashMap<>();
+            staff.put("id", "usr-staff");
+            staff.put("name", "Sarah Lim");
+            staff.put("role", "STAFF");
+            staff.put("email", "staff@globalisor.com");
+            staff.put("avatar", "SL");
+            assignees.add(staff);
+        }
+
+        // 5. Standard Categories
+        List<String> defaultCategories = List.of(
+                "Registered Address Change",
+                "Director / Shareholder Change",
+                "Share Capital & Allotment",
+                "Company Incorporation",
+                "Corporate Secretarial",
+                "Tax & Accounting Filing",
+                "GST & Bookkeeping",
+                "Compliance & Annual Return",
+                "Bank Account Opening Assistance",
+                "Employment Pass & Work Visas",
+                "Strike Off & Liquidation",
+                "General Operations & Inquiries"
+        );
+        Set<String> catSet = new LinkedHashSet<>(defaultCategories);
+        try {
+            taskRepository.findAll().forEach(t -> {
+                if (t.getCategory() != null && !t.getCategory().trim().isEmpty()) {
+                    catSet.add(t.getCategory().trim());
+                }
+            });
+        } catch (Exception ignored) {}
+
+        List<Map<String, Object>> priorities = List.of(
+                Map.of("value", "LOW", "label", "Low"),
+                Map.of("value", "MEDIUM", "label", "Medium"),
+                Map.of("value", "HIGH", "label", "High"),
+                Map.of("value", "URGENT", "label", "Urgent")
+        );
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("companies", companies);
+        result.put("assignees", assignees);
+        result.put("categories", new ArrayList<>(catSet));
+        result.put("priorities", priorities);
+        return result;
     }
 
     public void deleteTask(String id) {

@@ -29,6 +29,11 @@ public class TaskController {
         return ResponseEntity.ok(taskService.getAllTasks(status, priority, category, clientId, companyName, assignedToId));
     }
 
+    @GetMapping("/form-options")
+    public ResponseEntity<Map<String, Object>> getTaskFormOptions() {
+        return ResponseEntity.ok(taskService.getTaskFormOptions());
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<Task> getTaskById(@PathVariable String id) {
         return taskService.getTaskById(id)
