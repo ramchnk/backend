@@ -1,7 +1,9 @@
 package com.globalisor.backend.controller;
 
 import com.globalisor.backend.model.ClientDocument;
+import com.globalisor.backend.model.DocumentCategory;
 import com.globalisor.backend.repository.ClientDocumentRepository;
+import com.globalisor.backend.repository.DocumentCategoryRepository;
 import com.globalisor.backend.service.GcpStorageService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,7 +27,188 @@ public class DocumentMigrationController {
     private ClientDocumentRepository clientDocumentRepository;
 
     @Autowired
+    private DocumentCategoryRepository documentCategoryRepository;
+
+    @Autowired
     private GcpStorageService gcpStorageService;
+
+    // Default 16 Corporate Secretarial Document Categories
+    private static final List<DocumentCategory> DEFAULT_CATEGORIES = Arrays.asList(
+            DocumentCategory.builder().key("KYC").label("KYC").description("Passport, NRIC, Proof of Address").icon("shield-check").color("blue").sortOrder(1).isSystem(true).build(),
+            DocumentCategory.builder().key("Invoice").label("Invoice").description("Invoices, Billing & Receipts").icon("file-text").color("emerald").sortOrder(2).isSystem(true).build(),
+            DocumentCategory.builder().key("Permanent folder").label("Permanent folder").description("Permanent Corporate Records").icon("folder-archive").color("purple").sortOrder(3).isSystem(true).build(),
+            DocumentCategory.builder().key("Incorporation").label("Incorporation").description("BizFile, M&AA, Constitution").icon("building").color("indigo").sortOrder(4).isSystem(true).build(),
+            DocumentCategory.builder().key("All Signed").label("All Signed").description("Signed Agreements & Resolutions").icon("file-signature").color("amber").sortOrder(5).isSystem(true).build(),
+            DocumentCategory.builder().key("Change of Address").label("Change of Address").description("Form 44, Address Proofs").icon("map-pin").color("rose").sortOrder(6).isSystem(true).build(),
+            DocumentCategory.builder().key("Change of Directors").label("Change of Directors").description("Form 45, Director Consents").icon("users").color("sky").sortOrder(7).isSystem(true).build(),
+            DocumentCategory.builder().key("Change of CS").label("Change of CS").description("Secretary Appointment / Resignation").icon("user-cog").color("violet").sortOrder(8).isSystem(true).build(),
+            DocumentCategory.builder().key("Change of Auditors").label("Change of Auditors").description("Auditor Appointment / Resignation").icon("file-check").color("teal").sortOrder(9).isSystem(true).build(),
+            DocumentCategory.builder().key("AGM AR").label("AGM AR").description("AGM Minutes, Annual Return Filings").icon("calendar").color("cyan").sortOrder(10).isSystem(true).build(),
+            DocumentCategory.builder().key("Allotment of Shares").label("Allotment of Shares").description("Return of Allotment, Share Certs").icon("pie-chart").color("orange").sortOrder(11).isSystem(true).build(),
+            DocumentCategory.builder().key("Final Demand").label("Final Demand").description("Final Demand Notices & Reminders").icon("alert-triangle").color("rose").sortOrder(12).isSystem(true).build(),
+            DocumentCategory.builder().key("Tax").label("Tax").description("Tax Returns, Filings & Assessments").icon("receipt").color("emerald").sortOrder(13).isSystem(true).build(),
+            DocumentCategory.builder().key("RONS").label("RONS").description("Register of Nominee Directors / Officers").icon("file-text").color("indigo").sortOrder(14).isSystem(true).build(),
+            DocumentCategory.builder().key("Bizfile & filing").label("Bizfile & filing").description("ACRA BizFile Reports & Filings").icon("file-check-2").color("blue").sortOrder(15).isSystem(true).build(),
+            DocumentCategory.builder().key("Others").label("Others").description("Miscellaneous Documents").icon("folder").color("slate").sortOrder(16).isSystem(true).build()
+    );
+
+    // ==========================================
+    // GLOBAL DOCUMENT CATEGORIES API
+    // ==========================================
+
+    @GetMapping("/categories")
+    public ResponseEntity<List<DocumentCategory>> getCategories() {
+        List<DocumentCategory> list = documentCategoryRepository.findAllByOrderBySortOrderAsc();
+        if (list.isEmpty()) {
+            list = seedDefaultCategories();
+        }
+        return ResponseEntity.ok(list);
+    }
+
+    private List<DocumentCategory> seedDefaultCategories() {
+        documentCategoryRepository.deleteAll();
+        List<DocumentCategory> toSave = new ArrayList<>();
+        int order = 1;
+        for (DocumentCategory cat : DEFAULT_CATEGORIES) {
+            cat.setId(null);
+            cat.setSortOrder(order++);
+            toSave.add(cat);
+        }
+        return documentCategoryRepository.saveAll(toSave);
+    }
+
+    @PostMapping("/categories")
+    public ResponseEntity<?> createCategory(@RequestBody DocumentCategory category) {
+        try {
+            if (category.getKey() == null || category.getKey().trim().isEmpty()) {
+                if (category.getLabel() != null && !category.getLabel().trim().isEmpty()) {
+                    category.setKey(category.getLabel().trim());
+                } else {
+                    return ResponseEntity.badRequest().body(Map.of("error", "Category name is required"));
+                }
+            }
+            category.setKey(category.getKey().trim());
+            if (category.getLabel() == null || category.getLabel().trim().isEmpty()) {
+                category.setLabel(category.getKey());
+            }
+
+            Optional<DocumentCategory> existing = documentCategoryRepository.findByKeyIgnoreCase(category.getKey());
+            if (existing.isPresent()) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Category with this name already exists"));
+            }
+
+            if (category.getIcon() == null || category.getIcon().isEmpty()) category.setIcon("folder");
+            if (category.getColor() == null || category.getColor().isEmpty()) category.setColor("blue");
+            if (category.getDescription() == null) category.setDescription("");
+            if (category.getSortOrder() == null) {
+                category.setSortOrder((int) (documentCategoryRepository.count() + 1));
+            }
+            category.setIsSystem(false);
+
+            DocumentCategory saved = documentCategoryRepository.save(category);
+            return ResponseEntity.ok(saved);
+        } catch (Exception e) {
+            log.error("Failed to create document category: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @PutMapping("/categories/{id}")
+    public ResponseEntity<?> updateCategory(@PathVariable("id") String id, @RequestBody DocumentCategory updates) {
+        try {
+            Optional<DocumentCategory> optional = documentCategoryRepository.findById(id);
+            if (optional.isEmpty()) {
+                optional = documentCategoryRepository.findByKeyIgnoreCase(id);
+            }
+            if (optional.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Category not found"));
+            }
+
+            DocumentCategory existing = optional.get();
+            String oldKey = existing.getKey();
+            String newKey = updates.getKey() != null && !updates.getKey().trim().isEmpty() ? updates.getKey().trim() : (updates.getLabel() != null ? updates.getLabel().trim() : oldKey);
+
+            if (!oldKey.equalsIgnoreCase(newKey)) {
+                Optional<DocumentCategory> duplicate = documentCategoryRepository.findByKeyIgnoreCase(newKey);
+                if (duplicate.isPresent() && !duplicate.get().getId().equals(existing.getId())) {
+                    return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Another category with this name already exists"));
+                }
+            }
+
+            existing.setKey(newKey);
+            if (updates.getLabel() != null) existing.setLabel(updates.getLabel().trim());
+            if (updates.getDescription() != null) existing.setDescription(updates.getDescription().trim());
+            if (updates.getIcon() != null) existing.setIcon(updates.getIcon());
+            if (updates.getColor() != null) existing.setColor(updates.getColor());
+            if (updates.getSortOrder() != null) existing.setSortOrder(updates.getSortOrder());
+
+            DocumentCategory saved = documentCategoryRepository.save(existing);
+
+            // Reassign any documents in MongoDB that have old category key
+            if (!oldKey.equalsIgnoreCase(newKey)) {
+                List<ClientDocument> docs = clientDocumentRepository.findAll();
+                int updatedCount = 0;
+                for (ClientDocument doc : docs) {
+                    if (doc.getCategory() != null && doc.getCategory().equalsIgnoreCase(oldKey)) {
+                        doc.setCategory(newKey);
+                        clientDocumentRepository.save(doc);
+                        updatedCount++;
+                    }
+                }
+                log.info("Updated category from '{}' to '{}' on {} documents", oldKey, newKey, updatedCount);
+            }
+
+            return ResponseEntity.ok(saved);
+        } catch (Exception e) {
+            log.error("Failed to update document category: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @DeleteMapping("/categories/{idOrKey}")
+    public ResponseEntity<?> deleteCategory(@PathVariable("idOrKey") String idOrKey) {
+        try {
+            Optional<DocumentCategory> optional = documentCategoryRepository.findById(idOrKey);
+            if (optional.isEmpty()) {
+                optional = documentCategoryRepository.findByKeyIgnoreCase(idOrKey);
+            }
+            if (optional.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Category not found"));
+            }
+
+            DocumentCategory cat = optional.get();
+            String catKey = cat.getKey();
+            documentCategoryRepository.delete(cat);
+
+            // Reassign any matching documents in MongoDB to "Others"
+            List<ClientDocument> docs = clientDocumentRepository.findAll();
+            int movedCount = 0;
+            for (ClientDocument doc : docs) {
+                if (doc.getCategory() != null && doc.getCategory().equalsIgnoreCase(catKey)) {
+                    doc.setCategory("Others");
+                    clientDocumentRepository.save(doc);
+                    movedCount++;
+                }
+            }
+            log.info("Deleted category '{}' and moved {} documents to 'Others'", catKey, movedCount);
+
+            return ResponseEntity.ok(Map.of("status", "success", "deletedCategory", catKey, "movedDocsCount", movedCount));
+        } catch (Exception e) {
+            log.error("Failed to delete document category: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/categories/reset")
+    public ResponseEntity<?> resetCategories() {
+        try {
+            List<DocumentCategory> seeded = seedDefaultCategories();
+            return ResponseEntity.ok(Map.of("status", "success", "message", "Reset categories to default corporate taxonomy", "categories", seeded));
+        } catch (Exception e) {
+            log.error("Failed to reset document categories: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
+        }
+    }
 
     // Clear all document metadata records from MongoDB documents collection
     @DeleteMapping("/clear-all")
