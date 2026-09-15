@@ -11,5 +11,9 @@ import java.util.Optional;
 public interface DocumentCategoryRepository extends MongoRepository<DocumentCategory, String> {
     List<DocumentCategory> findAllByOrderBySortOrderAsc();
     Optional<DocumentCategory> findByKeyIgnoreCase(String key);
+    Optional<DocumentCategory> findByKeyIgnoreCaseAndParentKeyIgnoreCase(String key, String parentKey);
+    List<DocumentCategory> findByParentKeyIgnoreCase(String parentKey);
+    List<DocumentCategory> findByParentId(String parentId);
+    List<DocumentCategory> findByParentKeyIsNull();
     void deleteByKeyIgnoreCase(String key);
 }

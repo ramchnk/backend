@@ -53,7 +53,7 @@ public class DocumentMigrationController {
     );
 
     // ==========================================
-    // GLOBAL DOCUMENT CATEGORIES API
+    // GLOBAL DOCUMENT CATEGORIES & SUB-FOLDERS API
     // ==========================================
 
     @GetMapping("/categories")
@@ -62,6 +62,34 @@ public class DocumentMigrationController {
         if (list.isEmpty()) {
             list = seedDefaultCategories();
         }
+
+        // Map subfolders into parents if present
+        Map<String, DocumentCategory> rootMap = new LinkedHashMap<>();
+        List<DocumentCategory> roots = new ArrayList<>();
+        List<DocumentCategory> subCats = new ArrayList<>();
+
+        for (DocumentCategory cat : list) {
+            if (cat.getSubFolders() == null) {
+                cat.setSubFolders(new ArrayList<>());
+            }
+            if (cat.getParentKey() == null || cat.getParentKey().trim().isEmpty()) {
+                rootMap.put(cat.getKey().toLowerCase(), cat);
+                roots.add(cat);
+            } else {
+                subCats.add(cat);
+            }
+        }
+
+        for (DocumentCategory sub : subCats) {
+            String pKey = sub.getParentKey().toLowerCase();
+            if (rootMap.containsKey(pKey)) {
+                DocumentCategory parent = rootMap.get(pKey);
+                if (!parent.getSubFolders().contains(sub.getLabel() != null ? sub.getLabel() : sub.getKey())) {
+                    parent.getSubFolders().add(sub.getLabel() != null ? sub.getLabel() : sub.getKey());
+                }
+            }
+        }
+
         return ResponseEntity.ok(list);
     }
 
@@ -72,6 +100,9 @@ public class DocumentMigrationController {
         for (DocumentCategory cat : DEFAULT_CATEGORIES) {
             cat.setId(null);
             cat.setSortOrder(order++);
+            cat.setParentKey(null);
+            cat.setParentId(null);
+            cat.setSubFolders(new ArrayList<>());
             toSave.add(cat);
         }
         return documentCategoryRepository.saveAll(toSave);
@@ -92,14 +123,37 @@ public class DocumentMigrationController {
                 category.setLabel(category.getKey());
             }
 
-            Optional<DocumentCategory> existing = documentCategoryRepository.findByKeyIgnoreCase(category.getKey());
-            if (existing.isPresent()) {
-                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Category with this name already exists"));
+            // Check if creating a subfolder
+            String parentKey = category.getParentKey() != null ? category.getParentKey().trim() : null;
+            if (parentKey != null && !parentKey.isEmpty()) {
+                category.setParentKey(parentKey);
+                Optional<DocumentCategory> parentOpt = documentCategoryRepository.findByKeyIgnoreCase(parentKey);
+                if (parentOpt.isPresent()) {
+                    DocumentCategory parent = parentOpt.get();
+                    category.setParentId(parent.getId());
+                    if (parent.getSubFolders() == null) parent.setSubFolders(new ArrayList<>());
+                    if (!parent.getSubFolders().contains(category.getLabel())) {
+                        parent.getSubFolders().add(category.getLabel());
+                        documentCategoryRepository.save(parent);
+                    }
+                }
+
+                // Check duplicate subfolder under same parent
+                Optional<DocumentCategory> existingSub = documentCategoryRepository.findByKeyIgnoreCaseAndParentKeyIgnoreCase(category.getKey(), parentKey);
+                if (existingSub.isPresent()) {
+                    return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Sub-folder with this name already exists in " + parentKey));
+                }
+            } else {
+                Optional<DocumentCategory> existing = documentCategoryRepository.findByKeyIgnoreCase(category.getKey());
+                if (existing.isPresent() && (existing.get().getParentKey() == null || existing.get().getParentKey().isEmpty())) {
+                    return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Category with this name already exists"));
+                }
             }
 
             if (category.getIcon() == null || category.getIcon().isEmpty()) category.setIcon("folder");
             if (category.getColor() == null || category.getColor().isEmpty()) category.setColor("blue");
             if (category.getDescription() == null) category.setDescription("");
+            if (category.getSubFolders() == null) category.setSubFolders(new ArrayList<>());
             if (category.getSortOrder() == null) {
                 category.setSortOrder((int) (documentCategoryRepository.count() + 1));
             }
@@ -108,7 +162,63 @@ public class DocumentMigrationController {
             DocumentCategory saved = documentCategoryRepository.save(category);
             return ResponseEntity.ok(saved);
         } catch (Exception e) {
-            log.error("Failed to create document category: {}", e.getMessage(), e);
+            log.error("Failed to create document category/sub-folder: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/categories/{parentKey}/subfolders")
+    public ResponseEntity<?> createSubFolder(@PathVariable("parentKey") String parentKey, @RequestBody Map<String, Object> body) {
+        try {
+            String name = (String) body.get("name");
+            if (name == null || name.trim().isEmpty()) {
+                name = (String) body.get("key");
+            }
+            if (name == null || name.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Sub-folder name is required"));
+            }
+            name = name.trim();
+
+            Optional<DocumentCategory> parentOpt = documentCategoryRepository.findByKeyIgnoreCase(parentKey);
+            if (parentOpt.isEmpty()) {
+                parentOpt = documentCategoryRepository.findById(parentKey);
+            }
+            if (parentOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Parent category not found: " + parentKey));
+            }
+
+            DocumentCategory parent = parentOpt.get();
+            String actualParentKey = parent.getKey();
+
+            Optional<DocumentCategory> existingSub = documentCategoryRepository.findByKeyIgnoreCaseAndParentKeyIgnoreCase(name, actualParentKey);
+            if (existingSub.isPresent()) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Sub-folder '" + name + "' already exists under " + actualParentKey));
+            }
+
+            DocumentCategory subCat = DocumentCategory.builder()
+                    .key(name)
+                    .label(name)
+                    .parentKey(actualParentKey)
+                    .parentId(parent.getId())
+                    .description((String) body.getOrDefault("description", ""))
+                    .icon((String) body.getOrDefault("icon", "folder"))
+                    .color((String) body.getOrDefault("color", parent.getColor() != null ? parent.getColor() : "blue"))
+                    .isSystem(false)
+                    .subFolders(new ArrayList<>())
+                    .sortOrder((int) (documentCategoryRepository.count() + 1))
+                    .build();
+
+            DocumentCategory saved = documentCategoryRepository.save(subCat);
+
+            if (parent.getSubFolders() == null) parent.setSubFolders(new ArrayList<>());
+            if (!parent.getSubFolders().contains(name)) {
+                parent.getSubFolders().add(name);
+                documentCategoryRepository.save(parent);
+            }
+
+            return ResponseEntity.ok(saved);
+        } catch (Exception e) {
+            log.error("Failed to create sub-folder under {}: {}", parentKey, e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
         }
     }
@@ -127,11 +237,19 @@ public class DocumentMigrationController {
             DocumentCategory existing = optional.get();
             String oldKey = existing.getKey();
             String newKey = updates.getKey() != null && !updates.getKey().trim().isEmpty() ? updates.getKey().trim() : (updates.getLabel() != null ? updates.getLabel().trim() : oldKey);
+            boolean isSubfolder = existing.getParentKey() != null && !existing.getParentKey().isEmpty();
 
             if (!oldKey.equalsIgnoreCase(newKey)) {
-                Optional<DocumentCategory> duplicate = documentCategoryRepository.findByKeyIgnoreCase(newKey);
-                if (duplicate.isPresent() && !duplicate.get().getId().equals(existing.getId())) {
-                    return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Another category with this name already exists"));
+                if (isSubfolder) {
+                    Optional<DocumentCategory> duplicate = documentCategoryRepository.findByKeyIgnoreCaseAndParentKeyIgnoreCase(newKey, existing.getParentKey());
+                    if (duplicate.isPresent() && !duplicate.get().getId().equals(existing.getId())) {
+                        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Another sub-folder with this name already exists in " + existing.getParentKey()));
+                    }
+                } else {
+                    Optional<DocumentCategory> duplicate = documentCategoryRepository.findByKeyIgnoreCase(newKey);
+                    if (duplicate.isPresent() && !duplicate.get().getId().equals(existing.getId())) {
+                        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Another category with this name already exists"));
+                    }
                 }
             }
 
@@ -144,18 +262,55 @@ public class DocumentMigrationController {
 
             DocumentCategory saved = documentCategoryRepository.save(existing);
 
-            // Reassign any documents in MongoDB that have old category key
+            // Cascade rename to subfolders or parent references and documents
             if (!oldKey.equalsIgnoreCase(newKey)) {
-                List<ClientDocument> docs = clientDocumentRepository.findAll();
-                int updatedCount = 0;
-                for (ClientDocument doc : docs) {
-                    if (doc.getCategory() != null && doc.getCategory().equalsIgnoreCase(oldKey)) {
-                        doc.setCategory(newKey);
-                        clientDocumentRepository.save(doc);
-                        updatedCount++;
+                if (isSubfolder) {
+                    // Update parent's subFolders list
+                    Optional<DocumentCategory> parentOpt = documentCategoryRepository.findByKeyIgnoreCase(existing.getParentKey());
+                    if (parentOpt.isPresent()) {
+                        DocumentCategory parent = parentOpt.get();
+                        if (parent.getSubFolders() != null) {
+                            parent.getSubFolders().remove(oldKey);
+                            parent.getSubFolders().remove(existing.getLabel());
+                            if (!parent.getSubFolders().contains(newKey)) {
+                                parent.getSubFolders().add(newKey);
+                            }
+                            documentCategoryRepository.save(parent);
+                        }
                     }
+
+                    // Reassign documents in MongoDB that have old subFolder
+                    List<ClientDocument> docs = clientDocumentRepository.findAll();
+                    int updatedCount = 0;
+                    for (ClientDocument doc : docs) {
+                        if (doc.getCategory() != null && doc.getCategory().equalsIgnoreCase(existing.getParentKey()) &&
+                            doc.getSubFolder() != null && doc.getSubFolder().equalsIgnoreCase(oldKey)) {
+                            doc.setSubFolder(newKey);
+                            clientDocumentRepository.save(doc);
+                            updatedCount++;
+                        }
+                    }
+                    log.info("Updated sub-folder from '{}' to '{}' on {} documents", oldKey, newKey, updatedCount);
+                } else {
+                    // Update all child subfolders to reference new parentKey
+                    List<DocumentCategory> children = documentCategoryRepository.findByParentKeyIgnoreCase(oldKey);
+                    for (DocumentCategory child : children) {
+                        child.setParentKey(newKey);
+                        documentCategoryRepository.save(child);
+                    }
+
+                    // Reassign any documents in MongoDB that have old category key
+                    List<ClientDocument> docs = clientDocumentRepository.findAll();
+                    int updatedCount = 0;
+                    for (ClientDocument doc : docs) {
+                        if (doc.getCategory() != null && doc.getCategory().equalsIgnoreCase(oldKey)) {
+                            doc.setCategory(newKey);
+                            clientDocumentRepository.save(doc);
+                            updatedCount++;
+                        }
+                    }
+                    log.info("Updated category from '{}' to '{}' on {} documents", oldKey, newKey, updatedCount);
                 }
-                log.info("Updated category from '{}' to '{}' on {} documents", oldKey, newKey, updatedCount);
             }
 
             return ResponseEntity.ok(saved);
@@ -178,21 +333,55 @@ public class DocumentMigrationController {
 
             DocumentCategory cat = optional.get();
             String catKey = cat.getKey();
+            boolean isSubfolder = cat.getParentKey() != null && !cat.getParentKey().isEmpty();
+            String parentKey = cat.getParentKey();
+
             documentCategoryRepository.delete(cat);
 
-            // Reassign any matching documents in MongoDB to "Others"
-            List<ClientDocument> docs = clientDocumentRepository.findAll();
-            int movedCount = 0;
-            for (ClientDocument doc : docs) {
-                if (doc.getCategory() != null && doc.getCategory().equalsIgnoreCase(catKey)) {
-                    doc.setCategory("Others");
-                    clientDocumentRepository.save(doc);
-                    movedCount++;
+            if (isSubfolder) {
+                // Remove from parent's subFolders list
+                Optional<DocumentCategory> parentOpt = documentCategoryRepository.findByKeyIgnoreCase(parentKey);
+                if (parentOpt.isPresent()) {
+                    DocumentCategory parent = parentOpt.get();
+                    if (parent.getSubFolders() != null) {
+                        parent.getSubFolders().remove(catKey);
+                        parent.getSubFolders().remove(cat.getLabel());
+                        documentCategoryRepository.save(parent);
+                    }
                 }
-            }
-            log.info("Deleted category '{}' and moved {} documents to 'Others'", catKey, movedCount);
 
-            return ResponseEntity.ok(Map.of("status", "success", "deletedCategory", catKey, "movedDocsCount", movedCount));
+                // Reset documents with this subFolder to parent category root
+                List<ClientDocument> docs = clientDocumentRepository.findAll();
+                int movedCount = 0;
+                for (ClientDocument doc : docs) {
+                    if (doc.getCategory() != null && doc.getCategory().equalsIgnoreCase(parentKey) &&
+                        doc.getSubFolder() != null && doc.getSubFolder().equalsIgnoreCase(catKey)) {
+                        doc.setSubFolder(null);
+                        clientDocumentRepository.save(doc);
+                        movedCount++;
+                    }
+                }
+                log.info("Deleted subfolder '{}' under '{}' and cleared subFolder on {} documents", catKey, parentKey, movedCount);
+                return ResponseEntity.ok(Map.of("status", "success", "deletedSubFolder", catKey, "parentCategory", parentKey, "movedDocsCount", movedCount));
+            } else {
+                // Delete child subcategories as well
+                List<DocumentCategory> children = documentCategoryRepository.findByParentKeyIgnoreCase(catKey);
+                documentCategoryRepository.deleteAll(children);
+
+                // Reassign any matching documents in MongoDB to "Others"
+                List<ClientDocument> docs = clientDocumentRepository.findAll();
+                int movedCount = 0;
+                for (ClientDocument doc : docs) {
+                    if (doc.getCategory() != null && doc.getCategory().equalsIgnoreCase(catKey)) {
+                        doc.setCategory("Others");
+                        doc.setSubFolder(null);
+                        clientDocumentRepository.save(doc);
+                        movedCount++;
+                    }
+                }
+                log.info("Deleted category '{}' and moved {} documents to 'Others'", catKey, movedCount);
+                return ResponseEntity.ok(Map.of("status", "success", "deletedCategory", catKey, "movedDocsCount", movedCount));
+            }
         } catch (Exception e) {
             log.error("Failed to delete document category: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
@@ -270,13 +459,14 @@ public class DocumentMigrationController {
         }
     }
 
-    // Get documents by client ID (Categorized Smart View)
+    // Get documents by client ID (Categorized Smart View with Sub-Folder support)
     @GetMapping("/client/{clientId}")
     public ResponseEntity<Map<String, Object>> getClientDocuments(
             @PathVariable("clientId") String clientId,
             @RequestParam(value = "tenantId", defaultValue = "greenbridge") String tenantId,
             @RequestParam(value = "companyName", required = false) String companyName,
             @RequestParam(value = "category", required = false) String category,
+            @RequestParam(value = "subFolder", required = false) String subFolder,
             @RequestParam(value = "module", required = false) String module) {
 
         List<ClientDocument> docs;
@@ -301,6 +491,12 @@ public class DocumentMigrationController {
             }
         }
 
+        // SubFolder filtering if specified
+        if (subFolder != null && !subFolder.trim().isEmpty() && !"all".equalsIgnoreCase(subFolder)) {
+            String targetSub = subFolder.trim();
+            docs.removeIf(d -> d.getSubFolder() == null || !d.getSubFolder().equalsIgnoreCase(targetSub));
+        }
+
         // Enrich with GCS Signed URL if GCS is initialized
         List<Map<String, Object>> enriched = new ArrayList<>();
         for (ClientDocument doc : docs) {
@@ -310,6 +506,7 @@ public class DocumentMigrationController {
             map.put("clientId", doc.getClientId());
             map.put("companyName", doc.getCompanyName());
             map.put("category", doc.getCategory() != null ? doc.getCategory() : "Other");
+            map.put("subFolder", doc.getSubFolder() != null ? doc.getSubFolder() : "");
             map.put("suggestedModule", doc.getSuggestedModule() != null ? doc.getSuggestedModule() : "Misc");
             map.put("originalPath", doc.getOriginalPath());
             map.put("fileExtension", doc.getFileExtension());
@@ -330,6 +527,44 @@ public class DocumentMigrationController {
         return ResponseEntity.ok(response);
     }
 
+    // Move Document to a different Category or Sub-Folder
+    @PatchMapping("/{id}/move")
+    public ResponseEntity<?> moveDocument(
+            @PathVariable("id") String id,
+            @RequestBody Map<String, String> body) {
+        try {
+            Optional<ClientDocument> optional = clientDocumentRepository.findById(id);
+            if (optional.isEmpty()) {
+                List<ClientDocument> all = clientDocumentRepository.findAll();
+                optional = all.stream().filter(d -> id.equalsIgnoreCase(d.getId()) || id.equalsIgnoreCase(d.getTitle())).findFirst();
+            }
+
+            if (optional.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Document not found with ID: " + id));
+            }
+
+            ClientDocument doc = optional.get();
+            String newCategory = body.get("category");
+            String newSubFolder = body.get("subFolder");
+
+            if (newCategory != null && !newCategory.trim().isEmpty()) {
+                doc.setCategory(newCategory.trim());
+                doc.setSuggestedModule(resolveSuggestedModule(doc.getCategory(), doc.getSuggestedModule()));
+            }
+            if (body.containsKey("subFolder")) {
+                doc.setSubFolder(newSubFolder != null && !newSubFolder.trim().isEmpty() ? newSubFolder.trim() : null);
+            }
+
+            ClientDocument saved = clientDocumentRepository.save(doc);
+            log.info("Moved document {} to category='{}', subFolder='{}'", id, saved.getCategory(), saved.getSubFolder());
+
+            return ResponseEntity.ok(Map.of("status", "success", "document", saved));
+        } catch (Exception e) {
+            log.error("Failed to move document {}: {}", id, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
+        }
+    }
+
     // Bulk Document Manifest Import API (Registers document metadata from migration analysis spreadsheet)
     @PostMapping("/migrate/manifest")
     public ResponseEntity<Map<String, Object>> importDocumentManifest(@RequestBody List<Map<String, Object>> manifestList) {
@@ -344,16 +579,19 @@ public class DocumentMigrationController {
             String relativePath = (String) item.get("relativePath");
             String fileName = (String) item.get("fileName");
             String category = (String) item.get("category");
+            String subFolder = (String) item.get("subFolder");
             String suggestedModule = (String) item.get("suggestedModule");
             String extension = (String) item.get("extension");
             String tenantId = item.get("tenantId") != null ? (String) item.get("tenantId") : "greenbridge";
 
             if (fileName == null || fileName.isEmpty()) continue;
 
-            String blobName = String.format("tenants/%s/clients/%s/%s/%s",
+            String subPath = (subFolder != null && !subFolder.isEmpty()) ? subFolder.replaceAll("[^a-zA-Z0-9_-]", "_") + "/" : "";
+            String blobName = String.format("tenants/%s/clients/%s/%s/%s%s",
                     tenantId,
                     clientId != null ? clientId : "unassigned",
                     category != null ? category.replaceAll("[^a-zA-Z0-9_-]", "_") : "General",
+                    subPath,
                     fileName);
 
             ClientDocument doc = new ClientDocument();
@@ -361,6 +599,7 @@ public class DocumentMigrationController {
             doc.setClientId(clientId);
             doc.setCompanyName(companyName);
             doc.setCategory(category != null ? category : "Other");
+            doc.setSubFolder(subFolder != null && !subFolder.trim().isEmpty() ? subFolder.trim() : null);
             doc.setSuggestedModule(suggestedModule != null ? suggestedModule : "Misc");
             doc.setOriginalPath(relativePath != null ? relativePath : fileName);
             doc.setFileExtension(extension != null ? extension : ".pdf");
@@ -407,13 +646,14 @@ public class DocumentMigrationController {
         }
     }
 
-    // Multipart File Upload to GCP Bucket & MongoDB
+    // Multipart File Upload to GCP Bucket & MongoDB (Supports Category + Sub-Folder)
     @PostMapping("/upload")
     public ResponseEntity<Map<String, Object>> uploadDocument(
             @RequestParam("file") MultipartFile file,
             @RequestParam("clientId") String clientId,
             @RequestParam(value = "companyName", required = false) String companyName,
             @RequestParam(value = "category", defaultValue = "Other") String category,
+            @RequestParam(value = "subFolder", required = false) String subFolder,
             @RequestParam(value = "suggestedModule", required = false) String suggestedModule,
             @RequestParam(value = "tenantId", defaultValue = "greenbridge") String tenantId) {
 
@@ -422,10 +662,12 @@ public class DocumentMigrationController {
             String extension = originalFileName != null && originalFileName.contains(".") ?
                     originalFileName.substring(originalFileName.lastIndexOf(".")) : ".pdf";
 
-            String blobName = String.format("tenants/%s/clients/%s/%s/%s",
+            String subPath = (subFolder != null && !subFolder.trim().isEmpty()) ? subFolder.trim().replaceAll("[^a-zA-Z0-9_-]", "_") + "/" : "";
+            String blobName = String.format("tenants/%s/clients/%s/%s/%s%s",
                     tenantId,
                     clientId,
                     category.replaceAll("[^a-zA-Z0-9_-]", "_"),
+                    subPath,
                     originalFileName);
 
             // Upload to GCP Storage
@@ -441,6 +683,7 @@ public class DocumentMigrationController {
             doc.setClientId(clientId);
             doc.setCompanyName(companyName);
             doc.setCategory(category);
+            doc.setSubFolder(subFolder != null && !subFolder.trim().isEmpty() ? subFolder.trim() : null);
             doc.setSuggestedModule(module);
             doc.setOriginalPath(originalFileName);
             doc.setFileExtension(extension);
@@ -467,13 +710,14 @@ public class DocumentMigrationController {
         }
     }
 
-    // Multipart Batch File Upload by Category to GCP Bucket & MongoDB
+    // Multipart Batch File Upload by Category & Sub-Folder to GCP Bucket & MongoDB
     @PostMapping("/upload-batch")
     public ResponseEntity<Map<String, Object>> uploadBatchDocuments(
             @RequestParam(value = "files", required = false) MultipartFile[] files,
             @RequestParam("clientId") String clientId,
             @RequestParam(value = "companyName", required = false) String companyName,
             @RequestParam(value = "category", defaultValue = "Other") String category,
+            @RequestParam(value = "subFolder", required = false) String subFolder,
             @RequestParam(value = "suggestedModule", required = false) String suggestedModule,
             @RequestParam(value = "tenantId", defaultValue = "greenbridge") String tenantId,
             org.springframework.web.multipart.MultipartHttpServletRequest request) {
@@ -504,6 +748,7 @@ public class DocumentMigrationController {
             List<ClientDocument> savedDocs = new ArrayList<>();
             String now = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
             String module = resolveSuggestedModule(category, suggestedModule);
+            String subPath = (subFolder != null && !subFolder.trim().isEmpty()) ? subFolder.trim().replaceAll("[^a-zA-Z0-9_-]", "_") + "/" : "";
 
             for (MultipartFile file : allFiles) {
                 if (file.isEmpty()) continue;
@@ -512,10 +757,11 @@ public class DocumentMigrationController {
                 String extension = originalFileName != null && originalFileName.contains(".") ?
                         originalFileName.substring(originalFileName.lastIndexOf(".")) : ".pdf";
 
-                String blobName = String.format("tenants/%s/clients/%s/%s/%s",
+                String blobName = String.format("tenants/%s/clients/%s/%s/%s%s",
                         tenantId,
                         clientId,
                         category.replaceAll("[^a-zA-Z0-9_-]", "_"),
+                        subPath,
                         originalFileName);
 
                 if (gcpStorageService.isInitialized()) {
@@ -527,6 +773,7 @@ public class DocumentMigrationController {
                 doc.setClientId(clientId);
                 doc.setCompanyName(companyName);
                 doc.setCategory(category);
+                doc.setSubFolder(subFolder != null && !subFolder.trim().isEmpty() ? subFolder.trim() : null);
                 doc.setSuggestedModule(module);
                 doc.setOriginalPath(originalFileName);
                 doc.setFileExtension(extension);
@@ -546,6 +793,7 @@ public class DocumentMigrationController {
             res.put("status", "success");
             res.put("uploadedCount", savedDocs.size());
             res.put("category", category);
+            res.put("subFolder", subFolder);
             res.put("documents", savedDocs);
             return ResponseEntity.ok(res);
         } catch (Exception e) {

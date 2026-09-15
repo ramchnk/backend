@@ -22,4 +22,8 @@ public class DocumentCategory {
     private String color;       // e.g. "blue", "emerald", "purple"
     private Integer sortOrder;
     private Boolean isSystem;
+    private String parentKey;   // Key of parent category if this is a subfolder, null for root
+    private String parentId;    // ID of parent category if this is a subfolder, null for root
+    @Builder.Default
+    private java.util.List<String> subFolders = new java.util.ArrayList<>();
 }

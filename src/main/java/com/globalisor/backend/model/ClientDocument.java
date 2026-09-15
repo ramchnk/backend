@@ -40,6 +40,8 @@ public class ClientDocument {
     private String tenantId;
     @Indexed
     private String category; // AML/CDD, Tax, Passport, BizFile, Invoice, NRIC/FIN, Lease/Tenancy, Constitution, Bank Statement, Other
+    @Indexed
+    private String subFolder; // Sub-folder inside category (e.g. "Passports", "FY 2024")
     private String suggestedModule; // Compliance, Tax, KYC, Company, Finance, Director/Shareholder, Registered Office, Misc
     private String gcsBucket;
     private String gcsBlobName;
