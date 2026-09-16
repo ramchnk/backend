@@ -63,30 +63,41 @@ public class DocumentMigrationController {
             list = seedDefaultCategories();
         }
 
-        // Map subfolders into parents if present
-        Map<String, DocumentCategory> rootMap = new LinkedHashMap<>();
-        List<DocumentCategory> roots = new ArrayList<>();
-        List<DocumentCategory> subCats = new ArrayList<>();
-
+        // Map subfolders into parents hierarchically (Level 0 -> Level 1 -> Level 2)
+        Map<String, DocumentCategory> catMap = new LinkedHashMap<>();
         for (DocumentCategory cat : list) {
             if (cat.getSubFolders() == null) {
                 cat.setSubFolders(new ArrayList<>());
             }
-            if (cat.getParentKey() == null || cat.getParentKey().trim().isEmpty()) {
-                rootMap.put(cat.getKey().toLowerCase(), cat);
-                roots.add(cat);
-            } else {
-                subCats.add(cat);
+            if (cat.getLevel() == null) {
+                cat.setLevel(cat.getParentKey() == null || cat.getParentKey().trim().isEmpty() ? 0 : 1);
             }
+            catMap.put(cat.getKey().toLowerCase(), cat);
         }
 
-        for (DocumentCategory sub : subCats) {
-            String pKey = sub.getParentKey().toLowerCase();
-            if (rootMap.containsKey(pKey)) {
-                DocumentCategory parent = rootMap.get(pKey);
-                if (!parent.getSubFolders().contains(sub.getLabel() != null ? sub.getLabel() : sub.getKey())) {
-                    parent.getSubFolders().add(sub.getLabel() != null ? sub.getLabel() : sub.getKey());
+        // Second pass: Populate subFolders list on parents and resolve levels/rootKey
+        for (DocumentCategory cat : list) {
+            if (cat.getParentKey() != null && !cat.getParentKey().trim().isEmpty()) {
+                String pKey = cat.getParentKey().toLowerCase();
+                if (catMap.containsKey(pKey)) {
+                    DocumentCategory parent = catMap.get(pKey);
+                    String childName = cat.getLabel() != null ? cat.getLabel() : cat.getKey();
+                    if (parent.getSubFolders() == null) parent.setSubFolders(new ArrayList<>());
+                    if (!parent.getSubFolders().contains(childName)) {
+                        parent.getSubFolders().add(childName);
+                    }
+                    if (parent.getLevel() != null) {
+                        cat.setLevel(Math.min(2, parent.getLevel() + 1));
+                    }
+                    if (parent.getRootKey() != null) {
+                        cat.setRootKey(parent.getRootKey());
+                    } else if (parent.getParentKey() == null || parent.getParentKey().isEmpty()) {
+                        cat.setRootKey(parent.getKey());
+                    }
                 }
+            } else {
+                cat.setLevel(0);
+                cat.setRootKey(cat.getKey());
             }
         }
 
@@ -102,6 +113,9 @@ public class DocumentMigrationController {
             cat.setSortOrder(order++);
             cat.setParentKey(null);
             cat.setParentId(null);
+            cat.setRootKey(cat.getKey());
+            cat.setLevel(0);
+            cat.setFullPath(cat.getKey());
             cat.setSubFolders(new ArrayList<>());
             toSave.add(cat);
         }
@@ -128,14 +142,34 @@ public class DocumentMigrationController {
             if (parentKey != null && !parentKey.isEmpty()) {
                 category.setParentKey(parentKey);
                 Optional<DocumentCategory> parentOpt = documentCategoryRepository.findByKeyIgnoreCase(parentKey);
+                if (parentOpt.isEmpty()) {
+                    parentOpt = documentCategoryRepository.findById(parentKey);
+                }
+
                 if (parentOpt.isPresent()) {
                     DocumentCategory parent = parentOpt.get();
+                    int parentLevel = parent.getLevel() != null ? parent.getLevel() : (parent.getParentKey() != null && !parent.getParentKey().isEmpty() ? 1 : 0);
+                    
+                    // Enforce Max 2 Levels of subfolders (Level 0 = Root, Level 1 = Subfolder, Level 2 = Max nested subfolder)
+                    if (parentLevel >= 2) {
+                        return ResponseEntity.badRequest().body(Map.of("error", "Maximum subfolder depth of 2 levels reached. Cannot create subfolders inside Level 2 folders."));
+                    }
+
+                    int childLevel = parentLevel + 1;
+                    category.setLevel(childLevel);
                     category.setParentId(parent.getId());
+                    category.setParentKey(parent.getKey());
+                    category.setRootKey(parent.getRootKey() != null ? parent.getRootKey() : (parentLevel == 0 ? parent.getKey() : parent.getParentKey()));
+                    category.setFullPath((parent.getFullPath() != null ? parent.getFullPath() : parent.getKey()) + "/" + category.getKey());
+
                     if (parent.getSubFolders() == null) parent.setSubFolders(new ArrayList<>());
                     if (!parent.getSubFolders().contains(category.getLabel())) {
                         parent.getSubFolders().add(category.getLabel());
                         documentCategoryRepository.save(parent);
                     }
+                } else {
+                    category.setLevel(1);
+                    category.setRootKey(parentKey);
                 }
 
                 // Check duplicate subfolder under same parent
@@ -144,6 +178,9 @@ public class DocumentMigrationController {
                     return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Sub-folder with this name already exists in " + parentKey));
                 }
             } else {
+                category.setLevel(0);
+                category.setRootKey(category.getKey());
+                category.setFullPath(category.getKey());
                 Optional<DocumentCategory> existing = documentCategoryRepository.findByKeyIgnoreCase(category.getKey());
                 if (existing.isPresent() && (existing.get().getParentKey() == null || existing.get().getParentKey().isEmpty())) {
                     return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Category with this name already exists"));
@@ -189,6 +226,16 @@ public class DocumentMigrationController {
 
             DocumentCategory parent = parentOpt.get();
             String actualParentKey = parent.getKey();
+            int parentLevel = parent.getLevel() != null ? parent.getLevel() : (parent.getParentKey() != null && !parent.getParentKey().isEmpty() ? 1 : 0);
+
+            // Enforce max 2 levels of subfolders
+            if (parentLevel >= 2) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Maximum subfolder depth of 2 levels reached. Cannot create nested folders inside Level 2 folders."));
+            }
+
+            int childLevel = parentLevel + 1;
+            String rootKey = parent.getRootKey() != null ? parent.getRootKey() : (parentLevel == 0 ? parent.getKey() : parent.getParentKey());
+            String fullPath = (parent.getFullPath() != null ? parent.getFullPath() : parent.getKey()) + "/" + name;
 
             Optional<DocumentCategory> existingSub = documentCategoryRepository.findByKeyIgnoreCaseAndParentKeyIgnoreCase(name, actualParentKey);
             if (existingSub.isPresent()) {
@@ -200,6 +247,9 @@ public class DocumentMigrationController {
                     .label(name)
                     .parentKey(actualParentKey)
                     .parentId(parent.getId())
+                    .rootKey(rootKey)
+                    .level(childLevel)
+                    .fullPath(fullPath)
                     .description((String) body.getOrDefault("description", ""))
                     .icon((String) body.getOrDefault("icon", "folder"))
                     .color((String) body.getOrDefault("color", parent.getColor() != null ? parent.getColor() : "blue"))
@@ -267,6 +317,9 @@ public class DocumentMigrationController {
                 if (isSubfolder) {
                     // Update parent's subFolders list
                     Optional<DocumentCategory> parentOpt = documentCategoryRepository.findByKeyIgnoreCase(existing.getParentKey());
+                    if (parentOpt.isEmpty() && existing.getParentId() != null) {
+                        parentOpt = documentCategoryRepository.findById(existing.getParentId());
+                    }
                     if (parentOpt.isPresent()) {
                         DocumentCategory parent = parentOpt.get();
                         if (parent.getSubFolders() != null) {
@@ -279,24 +332,50 @@ public class DocumentMigrationController {
                         }
                     }
 
+                    // Also update any child subfolders (Level 2) that have this folder as parentKey
+                    List<DocumentCategory> childLevel2 = documentCategoryRepository.findByParentKeyIgnoreCase(oldKey);
+                    for (DocumentCategory c2 : childLevel2) {
+                        c2.setParentKey(newKey);
+                        c2.setFullPath((c2.getRootKey() != null ? c2.getRootKey() : existing.getRootKey()) + "/" + newKey + "/" + c2.getKey());
+                        documentCategoryRepository.save(c2);
+                    }
+
                     // Reassign documents in MongoDB that have old subFolder
                     List<ClientDocument> docs = clientDocumentRepository.findAll();
                     int updatedCount = 0;
                     for (ClientDocument doc : docs) {
-                        if (doc.getCategory() != null && doc.getCategory().equalsIgnoreCase(existing.getParentKey()) &&
-                            doc.getSubFolder() != null && doc.getSubFolder().equalsIgnoreCase(oldKey)) {
-                            doc.setSubFolder(newKey);
-                            clientDocumentRepository.save(doc);
-                            updatedCount++;
+                        if (doc.getSubFolder() != null) {
+                            if (doc.getSubFolder().equalsIgnoreCase(oldKey)) {
+                                doc.setSubFolder(newKey);
+                                clientDocumentRepository.save(doc);
+                                updatedCount++;
+                            } else if (doc.getSubFolder().startsWith(oldKey + "/")) {
+                                doc.setSubFolder(newKey + doc.getSubFolder().substring(oldKey.length()));
+                                clientDocumentRepository.save(doc);
+                                updatedCount++;
+                            } else if (doc.getSubFolder().endsWith("/" + oldKey)) {
+                                int lastSlash = doc.getSubFolder().lastIndexOf("/");
+                                doc.setSubFolder(doc.getSubFolder().substring(0, lastSlash + 1) + newKey);
+                                clientDocumentRepository.save(doc);
+                                updatedCount++;
+                            }
                         }
                     }
                     log.info("Updated sub-folder from '{}' to '{}' on {} documents", oldKey, newKey, updatedCount);
                 } else {
-                    // Update all child subfolders to reference new parentKey
+                    // Root category rename: update all Level 1 child subfolders to reference new root/parentKey
                     List<DocumentCategory> children = documentCategoryRepository.findByParentKeyIgnoreCase(oldKey);
                     for (DocumentCategory child : children) {
                         child.setParentKey(newKey);
+                        child.setRootKey(newKey);
                         documentCategoryRepository.save(child);
+
+                        // Update Level 2 grandchildren
+                        List<DocumentCategory> grandChildren = documentCategoryRepository.findByParentKeyIgnoreCase(child.getKey());
+                        for (DocumentCategory gc : grandChildren) {
+                            gc.setRootKey(newKey);
+                            documentCategoryRepository.save(gc);
+                        }
                     }
 
                     // Reassign any documents in MongoDB that have old category key
@@ -341,6 +420,9 @@ public class DocumentMigrationController {
             if (isSubfolder) {
                 // Remove from parent's subFolders list
                 Optional<DocumentCategory> parentOpt = documentCategoryRepository.findByKeyIgnoreCase(parentKey);
+                if (parentOpt.isEmpty() && cat.getParentId() != null) {
+                    parentOpt = documentCategoryRepository.findById(cat.getParentId());
+                }
                 if (parentOpt.isPresent()) {
                     DocumentCategory parent = parentOpt.get();
                     if (parent.getSubFolders() != null) {
@@ -350,12 +432,17 @@ public class DocumentMigrationController {
                     }
                 }
 
-                // Reset documents with this subFolder to parent category root
+                // Delete any Level 2 child subfolders if this was Level 1
+                List<DocumentCategory> children = documentCategoryRepository.findByParentKeyIgnoreCase(catKey);
+                if (!children.isEmpty()) {
+                    documentCategoryRepository.deleteAll(children);
+                }
+
+                // Reset documents with this subFolder (or nested subFolder) to parent level
                 List<ClientDocument> docs = clientDocumentRepository.findAll();
                 int movedCount = 0;
                 for (ClientDocument doc : docs) {
-                    if (doc.getCategory() != null && doc.getCategory().equalsIgnoreCase(parentKey) &&
-                        doc.getSubFolder() != null && doc.getSubFolder().equalsIgnoreCase(catKey)) {
+                    if (doc.getSubFolder() != null && (doc.getSubFolder().equalsIgnoreCase(catKey) || doc.getSubFolder().startsWith(catKey + "/") || doc.getSubFolder().endsWith("/" + catKey))) {
                         doc.setSubFolder(null);
                         clientDocumentRepository.save(doc);
                         movedCount++;
@@ -364,8 +451,14 @@ public class DocumentMigrationController {
                 log.info("Deleted subfolder '{}' under '{}' and cleared subFolder on {} documents", catKey, parentKey, movedCount);
                 return ResponseEntity.ok(Map.of("status", "success", "deletedSubFolder", catKey, "parentCategory", parentKey, "movedDocsCount", movedCount));
             } else {
-                // Delete child subcategories as well
+                // Delete all child and grandchild subcategories
                 List<DocumentCategory> children = documentCategoryRepository.findByParentKeyIgnoreCase(catKey);
+                for (DocumentCategory child : children) {
+                    List<DocumentCategory> grandChildren = documentCategoryRepository.findByParentKeyIgnoreCase(child.getKey());
+                    if (!grandChildren.isEmpty()) {
+                        documentCategoryRepository.deleteAll(grandChildren);
+                    }
+                }
                 documentCategoryRepository.deleteAll(children);
 
                 // Reassign any matching documents in MongoDB to "Others"
