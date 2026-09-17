@@ -1024,9 +1024,35 @@ public class BusinessIntelligenceController {
         Task createdTask = null;
         if (taskService != null) {
             try {
-                String resolvedClientId = (match != null && match.getClientId() != null) ? match.getClientId() : (userId.contains("@") ? userId : "C-1001");
-                String resolvedClientName = (match != null && match.getClientName() != null) ? match.getClientName() : userId;
-                String resolvedClientEmail = userId.contains("@") ? userId : (match != null ? match.getClientEmail() : "client@globalisor.com");
+                String resolvedClientId = (match != null && match.getUserId() != null && !match.getUserId().trim().isEmpty())
+                        ? match.getUserId().trim()
+                        : (userId != null && !userId.trim().isEmpty() ? userId.trim() : "C-1001");
+                String resolvedClientName = (userId != null && !userId.trim().isEmpty() && !userId.equalsIgnoreCase("client")) ? userId.trim() : displayCompName;
+                String resolvedClientEmail = (userId != null && userId.contains("@")) ? userId.trim() : "client@globalisor.com";
+
+                Optional<User> userOpt = Optional.empty();
+                if (resolvedClientId != null && !resolvedClientId.isEmpty()) {
+                    userOpt = userRepository.findById(resolvedClientId);
+                    if (userOpt.isEmpty() && resolvedClientId.contains("@")) {
+                        userOpt = userRepository.findByEmail(resolvedClientId);
+                    }
+                }
+                if (userOpt.isEmpty() && userId != null && !userId.isEmpty()) {
+                    userOpt = userRepository.findById(userId);
+                    if (userOpt.isEmpty() && userId.contains("@")) {
+                        userOpt = userRepository.findByEmail(userId);
+                    }
+                }
+                if (userOpt.isPresent()) {
+                    User u = userOpt.get();
+                    String fullName = ((u.getFirstName() != null ? u.getFirstName() : "") + " " + (u.getLastName() != null ? u.getLastName() : "")).trim();
+                    if (!fullName.isEmpty()) {
+                        resolvedClientName = fullName;
+                    }
+                    if (u.getEmail() != null && !u.getEmail().trim().isEmpty()) {
+                        resolvedClientEmail = u.getEmail().trim();
+                    }
+                }
 
                 List<Task.Attachment> attachments = new ArrayList<>();
                 if (addressProofDoc != null && !addressProofDoc.trim().isEmpty() && !"Attached Document".equalsIgnoreCase(addressProofDoc)) {
