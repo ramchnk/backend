@@ -60,7 +60,7 @@ public class DocumentMigrationController {
     public ResponseEntity<List<DocumentCategory>> getCategories() {
         List<DocumentCategory> list = documentCategoryRepository.findAllByOrderBySortOrderAsc();
         if (list.isEmpty()) {
-            list = seedDefaultCategories();
+            return ResponseEntity.ok(Collections.emptyList());
         }
 
         // Map subfolders into parents hierarchically (Level 0 -> Level 1 -> Level 2)
