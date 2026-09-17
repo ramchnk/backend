@@ -438,42 +438,79 @@ public class DocumentMigrationController {
                     documentCategoryRepository.deleteAll(children);
                 }
 
-                // Reset documents with this subFolder (or nested subFolder) to parent level
+                // Permanently delete all documents inside this subfolder and any nested children
                 List<ClientDocument> docs = clientDocumentRepository.findAll();
-                int movedCount = 0;
+                List<ClientDocument> docsToDelete = new ArrayList<>();
                 for (ClientDocument doc : docs) {
-                    if (doc.getSubFolder() != null && (doc.getSubFolder().equalsIgnoreCase(catKey) || doc.getSubFolder().startsWith(catKey + "/") || doc.getSubFolder().endsWith("/" + catKey))) {
-                        doc.setSubFolder(null);
-                        clientDocumentRepository.save(doc);
-                        movedCount++;
+                    if (doc.getSubFolder() != null && (doc.getSubFolder().equalsIgnoreCase(catKey)
+                            || doc.getSubFolder().toLowerCase().startsWith(catKey.toLowerCase() + "/")
+                            || doc.getSubFolder().toLowerCase().endsWith("/" + catKey.toLowerCase()))) {
+                        docsToDelete.add(doc);
                     }
                 }
-                log.info("Deleted subfolder '{}' under '{}' and cleared subFolder on {} documents", catKey, parentKey, movedCount);
-                return ResponseEntity.ok(Map.of("status", "success", "deletedSubFolder", catKey, "parentCategory", parentKey, "movedDocsCount", movedCount));
+
+                for (ClientDocument doc : docsToDelete) {
+                    if (doc.getGcsBlobName() != null && !doc.getGcsBlobName().isEmpty()) {
+                        try {
+                            gcpStorageService.deleteFile(doc.getGcsBlobName());
+                        } catch (Exception e) {
+                            log.warn("Failed to delete GCS blob {} for document {}: {}", doc.getGcsBlobName(), doc.getId(), e.getMessage());
+                        }
+                    }
+                }
+
+                if (!docsToDelete.isEmpty()) {
+                    clientDocumentRepository.deleteAll(docsToDelete);
+                }
+
+                log.info("Deleted subfolder '{}' under '{}' and permanently deleted {} documents", catKey, parentKey, docsToDelete.size());
+                return ResponseEntity.ok(Map.of("status", "success", "deletedSubFolder", catKey, "parentCategory", parentKey, "deletedDocsCount", docsToDelete.size()));
             } else {
-                // Delete all child and grandchild subcategories
+                // Root category deletion
+                // Gather all child and grandchild subcategories to delete
+                Set<String> categoryKeysToDelete = new HashSet<>();
+                categoryKeysToDelete.add(catKey.toLowerCase());
+
                 List<DocumentCategory> children = documentCategoryRepository.findByParentKeyIgnoreCase(catKey);
                 for (DocumentCategory child : children) {
+                    categoryKeysToDelete.add(child.getKey().toLowerCase());
                     List<DocumentCategory> grandChildren = documentCategoryRepository.findByParentKeyIgnoreCase(child.getKey());
                     if (!grandChildren.isEmpty()) {
+                        for (DocumentCategory gc : grandChildren) {
+                            categoryKeysToDelete.add(gc.getKey().toLowerCase());
+                        }
                         documentCategoryRepository.deleteAll(grandChildren);
                     }
                 }
-                documentCategoryRepository.deleteAll(children);
+                if (!children.isEmpty()) {
+                    documentCategoryRepository.deleteAll(children);
+                }
 
-                // Reassign any matching documents in MongoDB to "Others"
+                // Permanently delete all documents matching this category or its subcategories
                 List<ClientDocument> docs = clientDocumentRepository.findAll();
-                int movedCount = 0;
+                List<ClientDocument> docsToDelete = new ArrayList<>();
                 for (ClientDocument doc : docs) {
-                    if (doc.getCategory() != null && doc.getCategory().equalsIgnoreCase(catKey)) {
-                        doc.setCategory("Others");
-                        doc.setSubFolder(null);
-                        clientDocumentRepository.save(doc);
-                        movedCount++;
+                    if (doc.getCategory() != null && categoryKeysToDelete.contains(doc.getCategory().toLowerCase())) {
+                        docsToDelete.add(doc);
                     }
                 }
-                log.info("Deleted category '{}' and moved {} documents to 'Others'", catKey, movedCount);
-                return ResponseEntity.ok(Map.of("status", "success", "deletedCategory", catKey, "movedDocsCount", movedCount));
+
+                for (ClientDocument doc : docsToDelete) {
+                    if (doc.getGcsBlobName() != null && !doc.getGcsBlobName().isEmpty()) {
+                        try {
+                            gcpStorageService.deleteFile(doc.getGcsBlobName());
+                        } catch (Exception e) {
+                            log.warn("Failed to delete GCS blob {} for document {}: {}", doc.getGcsBlobName(), doc.getId(), e.getMessage());
+                        }
+                    }
+                }
+
+                if (!docsToDelete.isEmpty()) {
+                    clientDocumentRepository.deleteAll(docsToDelete);
+                }
+
+                log.info("Deleted category '{}' and permanently deleted {} documents", catKey, docsToDelete.size());
+                return ResponseEntity.ok(Map.of("status", "success", "deletedCategory", catKey, "deletedDocsCount", docsToDelete.size()));
             }
         } catch (Exception e) {
             log.error("Failed to delete document category: {}", e.getMessage(), e);
