@@ -247,7 +247,7 @@ public class TaskService {
 
         Task saved = taskRepository.save(task);
 
-        // Notify client and admin
+        // Notify client
         try {
             if (task.getClientId() != null) {
                 notificationService.sendNotification(
@@ -256,11 +256,31 @@ public class TaskService {
                         "Your request '" + task.getTitle() + "' has been submitted successfully.",
                         "TASK_CREATED",
                         saved.getId(),
-                        "Info"
+                        "Info",
+                        "/client/portal.html?tab=tasks"
                 );
             }
         } catch (Exception e) {
             // Ignore notification failure during creation
+        }
+
+        // Notify admin & staff for real-time toast notification
+        try {
+            String clientLabel = saved.getClientName() != null ? saved.getClientName() : "Client";
+            if (saved.getCompanyName() != null && !saved.getCompanyName().isEmpty()) {
+                clientLabel += " (" + saved.getCompanyName() + ")";
+            }
+            notificationService.sendNotification(
+                    "admin",
+                    "New Task Raised: " + saved.getTicketNumber(),
+                    clientLabel + " raised a new task: " + saved.getTitle(),
+                    "TASK_CREATED",
+                    saved.getId(),
+                    "High",
+                    "tasks.html?id=" + saved.getId()
+            );
+        } catch (Exception e) {
+            // Ignore notification failure
         }
 
         return saved;
@@ -413,9 +433,19 @@ public class TaskService {
                                 comment.getAuthorName() + ": " + comment.getText(),
                                 "TASK_COMMENT",
                                 task.getId(),
-                                "Info"
+                                "Info",
+                                "tasks.html?id=" + task.getId()
                         );
                     }
+                    notificationService.sendNotification(
+                            "admin",
+                            "New Client Message: " + task.getTicketNumber(),
+                            comment.getAuthorName() + " (" + (task.getCompanyName() != null ? task.getCompanyName() : "Client") + "): " + comment.getText(),
+                            "TASK_COMMENT",
+                            task.getId(),
+                            "Info",
+                            "tasks.html?id=" + task.getId()
+                    );
                 } else {
                     if (task.getClientId() != null) {
                         notificationService.sendNotification(

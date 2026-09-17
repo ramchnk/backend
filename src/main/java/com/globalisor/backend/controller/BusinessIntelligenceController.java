@@ -12,6 +12,8 @@ import com.globalisor.backend.repository.UserRepository;
 import com.globalisor.backend.service.DocumentGenerationService;
 import com.globalisor.backend.service.DocumentGenerationService.NomineeAppointmentDocumentData;
 import com.globalisor.backend.service.NotificationService;
+import com.globalisor.backend.model.Task;
+import com.globalisor.backend.service.TaskService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
@@ -51,6 +53,9 @@ public class BusinessIntelligenceController {
 
     @Autowired
     private NotificationService notificationService;
+
+    @Autowired
+    private TaskService taskService;
 
 
     /**
@@ -1015,18 +1020,58 @@ public class BusinessIntelligenceController {
         String reqId = docData != null ? docData.getId() : ("req-" + System.currentTimeMillis());
         String displayCompName = (docData != null && docData.getCompanyName() != null) ? docData.getCompanyName() : (companyName.isEmpty() ? userId : companyName);
 
-        if (notificationService != null) {
+        // Automatically create a Task in the Admin / Staff task queue
+        Task createdTask = null;
+        if (taskService != null) {
             try {
-                String notifMsg = "Client entity (" + displayCompName + ") requested Change of Registered Address:\n• New Address: " + newAddress + "\n• Effective Date: " + effectiveDate + "\n• Hours: " + officeHours + "\n• Proof: " + addressProofDoc;
-                notificationService.sendNotification("admin",
-                        "📍 Change of Address Request: " + displayCompName,
-                        notifMsg,
-                        "CHANGE_OF_ADDRESS_REQUEST",
-                        reqId,
-                        "High",
-                        "chat_request");
+                String resolvedClientId = (match != null && match.getClientId() != null) ? match.getClientId() : (userId.contains("@") ? userId : "C-1001");
+                String resolvedClientName = (match != null && match.getClientName() != null) ? match.getClientName() : userId;
+                String resolvedClientEmail = userId.contains("@") ? userId : (match != null ? match.getClientEmail() : "client@globalisor.com");
+
+                List<Task.Attachment> attachments = new ArrayList<>();
+                if (addressProofDoc != null && !addressProofDoc.trim().isEmpty() && !"Attached Document".equalsIgnoreCase(addressProofDoc)) {
+                    attachments.add(Task.Attachment.builder()
+                            .id("att-" + System.currentTimeMillis())
+                            .name(addressProofDoc)
+                            .url("")
+                            .type("Address Proof")
+                            .uploadedAt(System.currentTimeMillis())
+                            .build());
+                }
+
+                String description = "Client requested Change of Registered Office Address via AI Chat Agent.\n\n" +
+                        "• Company: " + displayCompName + "\n" +
+                        "• New Registered Address: " + newAddress + "\n" +
+                        "• Effective Date: " + effectiveDate + "\n" +
+                        "• Office Hours: " + officeHours + "\n" +
+                        "• Address Proof: " + addressProofDoc +
+                        (docData != null ? "\n• Generated Draft Document ID: " + docData.getId() : "");
+
+                Task task = Task.builder()
+                        .clientId(resolvedClientId)
+                        .clientName(resolvedClientName)
+                        .clientEmail(resolvedClientEmail)
+                        .companyName(displayCompName)
+                        .title("Change Registered Address to " + (newAddress.length() > 35 ? newAddress.substring(0, 35) + "..." : newAddress))
+                        .description(description)
+                        .type("CHANGE")
+                        .category("Registered Address Change")
+                        .priority("HIGH")
+                        .status("PENDING")
+                        .dueDate("Within 24 Hours")
+                        .attachments(attachments)
+                        .createdBy(Task.UserRef.builder()
+                                .id(resolvedClientId)
+                                .name(resolvedClientName)
+                                .role("CLIENT")
+                                .email(resolvedClientEmail)
+                                .build())
+                        .build();
+
+                createdTask = taskService.createTask(task);
+                log.info("Automatically created Task {} for AI address change request.", createdTask.getTicketNumber());
             } catch (Exception e) {
-                log.warn("Could not broadcast notification to admin: {}", e.getMessage());
+                log.error("Failed to automatically create task for address change: {}", e.getMessage(), e);
             }
         }
 
@@ -1037,6 +1082,10 @@ public class BusinessIntelligenceController {
         response.put("effectiveDate", effectiveDate);
         response.put("officeHours", officeHours);
         response.put("addressProofDoc", addressProofDoc);
+        if (createdTask != null) {
+            response.put("ticketNumber", createdTask.getTicketNumber());
+            response.put("taskId", createdTask.getId());
+        }
 
         return ResponseEntity.ok(response);
     }
