@@ -880,7 +880,8 @@ public class MigratedEndpointsController {
     @GetMapping("/notifications")
     public ResponseEntity<List<Notification>> getNotifications(
             @RequestParam(required = false) String clientId,
-            @RequestParam(required = false) String userId) {
+            @RequestParam(required = false) String userId,
+            @RequestParam(required = false) String role) {
         // Cleanup notifications older than 30 days (30L * 24 * 60 * 60 * 1000 = 2592000000L)
         try {
             long cutoff = System.currentTimeMillis() - 2592000000L;
@@ -901,7 +902,23 @@ public class MigratedEndpointsController {
             targets.add("all");
             targets.add(targetId);
             String lowerTarget = targetId.toLowerCase();
-            if (lowerTarget.contains("admin") || lowerTarget.contains("staff") || lowerTarget.equals("all")) {
+            boolean isAdminOrStaff = "admin".equalsIgnoreCase(role) || "staff".equalsIgnoreCase(role)
+                    || lowerTarget.contains("admin") || lowerTarget.contains("staff") || lowerTarget.equals("all");
+            
+            if (!isAdminOrStaff) {
+                Optional<User> uOpt = userRepository.findById(targetId);
+                if (uOpt.isEmpty() && targetId.contains("@")) {
+                    uOpt = userRepository.findByEmail(targetId);
+                }
+                if (uOpt.isPresent() && uOpt.get().getRole() != null) {
+                    String r = uOpt.get().getRole().toUpperCase();
+                    if (r.contains("ADMIN") || r.contains("STAFF") || r.contains("SUPERADMIN")) {
+                        isAdminOrStaff = true;
+                    }
+                }
+            }
+
+            if (isAdminOrStaff) {
                 targets.add("admin");
                 targets.add("staff");
                 targets.add("staff-admin");
@@ -918,22 +935,58 @@ public class MigratedEndpointsController {
     }
 
     @PostMapping("/notifications/read")
-    public ResponseEntity<Map<String, Object>> markNotificationAsRead(@RequestBody Map<String, String> body) {
-        String notifId = body.get("notifId");
-        String clientId = body.get("clientId");
+    public ResponseEntity<Map<String, Object>> markNotificationAsRead(
+            @RequestBody(required = false) Map<String, String> body,
+            @RequestParam(required = false) String notifId,
+            @RequestParam(required = false) String clientId) {
+        String finalNotifId = (body != null && body.get("notifId") != null) ? body.get("notifId") : notifId;
+        String finalClientId = (body != null && body.get("clientId") != null) ? body.get("clientId") : clientId;
+        String role = (body != null && body.get("role") != null) ? body.get("role") : null;
 
-        if (notifId == null || clientId == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", "notifId and clientId are required"));
+        if (finalNotifId == null || finalNotifId.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "notifId is required"));
+        }
+        if (finalClientId == null || finalClientId.trim().isEmpty()) {
+            finalClientId = "admin";
         }
 
-        Optional<Notification> notifOpt = notificationRepository.findById(notifId);
+        Optional<Notification> notifOpt = notificationRepository.findById(finalNotifId);
         if (notifOpt.isPresent()) {
             Notification notification = notifOpt.get();
             if (notification.getReadBy() == null) {
                 notification.setReadBy(new ArrayList<>());
             }
-            if (!notification.getReadBy().contains(clientId)) {
-                notification.getReadBy().add(clientId);
+            boolean modified = false;
+            if (!notification.getReadBy().contains(finalClientId)) {
+                notification.getReadBy().add(finalClientId);
+                modified = true;
+            }
+            String lower = finalClientId.toLowerCase();
+            boolean isAdminOrStaff = "admin".equalsIgnoreCase(role) || "staff".equalsIgnoreCase(role)
+                    || lower.contains("admin") || lower.contains("staff");
+            if (!isAdminOrStaff) {
+                Optional<User> uOpt = userRepository.findById(finalClientId);
+                if (uOpt.isEmpty() && finalClientId.contains("@")) {
+                    uOpt = userRepository.findByEmail(finalClientId);
+                }
+                if (uOpt.isPresent() && uOpt.get().getRole() != null) {
+                    String r = uOpt.get().getRole().toUpperCase();
+                    if (r.contains("ADMIN") || r.contains("STAFF") || r.contains("SUPERADMIN")) {
+                        isAdminOrStaff = true;
+                    }
+                }
+            }
+            if (isAdminOrStaff) {
+                if (!notification.getReadBy().contains("admin")) {
+                    notification.getReadBy().add("admin");
+                    modified = true;
+                }
+                if (!notification.getReadBy().contains("staff-admin")) {
+                    notification.getReadBy().add("staff-admin");
+                    modified = true;
+                }
+            }
+            if (modified) {
                 notificationRepository.save(notification);
             }
             return ResponseEntity.ok(Map.of("success", true));
@@ -945,15 +998,39 @@ public class MigratedEndpointsController {
     @PostMapping("/notifications/read-all")
     public ResponseEntity<Map<String, Object>> readAllNotifications(
             @RequestParam(required = false) String clientId,
-            @RequestParam(required = false) String userId) {
+            @RequestParam(required = false) String userId,
+            @RequestParam(required = false) String role,
+            @RequestBody(required = false) Map<String, String> body) {
         String targetId = clientId != null && !clientId.isEmpty() ? clientId : userId;
-        if (targetId == null || targetId.isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "clientId or userId is required"));
+        if (targetId == null && body != null) {
+            targetId = body.get("clientId") != null ? body.get("clientId") : body.get("userId");
         }
+        if (targetId == null || targetId.isEmpty()) {
+            targetId = "admin";
+        }
+        String passedRole = role != null ? role : (body != null ? body.get("role") : null);
+
         Set<String> targets = new HashSet<>();
         targets.add("all");
         targets.add(targetId);
-        if (targetId.equals("admin") || targetId.startsWith("staff") || targetId.equals("staff-admin")) {
+        String lowerTarget = targetId.toLowerCase();
+        boolean isAdminOrStaff = "admin".equalsIgnoreCase(passedRole) || "staff".equalsIgnoreCase(passedRole)
+                || lowerTarget.contains("admin") || lowerTarget.contains("staff") || lowerTarget.equals("all");
+
+        if (!isAdminOrStaff) {
+            Optional<User> uOpt = userRepository.findById(targetId);
+            if (uOpt.isEmpty() && targetId.contains("@")) {
+                uOpt = userRepository.findByEmail(targetId);
+            }
+            if (uOpt.isPresent() && uOpt.get().getRole() != null) {
+                String r = uOpt.get().getRole().toUpperCase();
+                if (r.contains("ADMIN") || r.contains("STAFF") || r.contains("SUPERADMIN")) {
+                    isAdminOrStaff = true;
+                }
+            }
+        }
+
+        if (isAdminOrStaff) {
             targets.add("admin");
             targets.add("staff");
             targets.add("staff-admin");
@@ -966,12 +1043,26 @@ public class MigratedEndpointsController {
             if (notification.getReadBy() == null) {
                 notification.setReadBy(new ArrayList<>());
             }
+            boolean modified = false;
             if (!notification.getReadBy().contains(targetId)) {
                 notification.getReadBy().add(targetId);
+                modified = true;
+            }
+            if (isAdminOrStaff) {
+                if (!notification.getReadBy().contains("admin")) {
+                    notification.getReadBy().add("admin");
+                    modified = true;
+                }
+                if (!notification.getReadBy().contains("staff-admin")) {
+                    notification.getReadBy().add("staff-admin");
+                    modified = true;
+                }
+            }
+            if (modified) {
                 notificationRepository.save(notification);
             }
         }
-        return ResponseEntity.ok(Map.of("success", true));
+        return ResponseEntity.ok(Map.of("success", true, "markedCount", list.size()));
     }
 
     // --- MESSAGE ENDPOINTS ---
