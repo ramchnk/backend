@@ -38,6 +38,14 @@ public class User {
     private String onlineStatus = "OFFLINE";
     private String attendanceStatus = "SIGNED_OUT";
 
+    // Staff Client Assignment Fields
+    @Indexed
+    private String assignedStaffId;
+    private String assignedStaffName;
+    private String assignedStaffEmail;
+    private Long assignedAt;
+    private String assignedBy;
+
     public User(String firstName, String lastName, String email, String password) {
         this.firstName = firstName;
         this.lastName = lastName;

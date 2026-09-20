@@ -629,7 +629,7 @@ public class AdminController {
     }
 
     @GetMapping("/admin/staff")
-    public ResponseEntity<?> getStaffList() {
+    public ResponseEntity<?> getStaff() {
         List<User> users = userRepository.findAll();
         List<Map<String, Object>> staffList = new ArrayList<>();
         for (User u : users) {
@@ -756,6 +756,13 @@ public class AdminController {
             client.put("status", "Active");
             client.put("docsCount", 8L);
             client.put("portalActivated", true);
+
+            // Assigned Staff
+            client.put("assignedStaffId", u.getAssignedStaffId() != null ? u.getAssignedStaffId() : "");
+            client.put("assignedStaffName", u.getAssignedStaffName() != null ? u.getAssignedStaffName() : "Unassigned");
+            client.put("assignedStaffEmail", u.getAssignedStaffEmail() != null ? u.getAssignedStaffEmail() : "");
+            client.put("assignedAt", u.getAssignedAt());
+            client.put("assignedBy", u.getAssignedBy());
 
             clientList.add(client);
         }
@@ -1129,6 +1136,129 @@ public class AdminController {
         complianceRepository.findByClientId(id).ifPresent(c -> complianceRepository.deleteById(c.getId()));
 
         return ResponseEntity.ok(Map.of("success", true, "message", "Client deleted successfully."));
+    }
+
+    @GetMapping("/admin/staff-list")
+    public ResponseEntity<?> getStaffList() {
+        List<User> users = userRepository.findAll();
+        List<Map<String, Object>> staffList = users.stream()
+                .filter(u -> "STAFF".equalsIgnoreCase(u.getRole()))
+                .map(u -> {
+                    Map<String, Object> map = new HashMap<>();
+                    String name = ((u.getFirstName() != null ? u.getFirstName() : "") + " " + (u.getLastName() != null ? u.getLastName() : "")).trim();
+                    if (name.isEmpty()) name = u.getEmail() != null ? u.getEmail() : "Staff Specialist";
+                    map.put("id", u.getId());
+                    map.put("name", name);
+                    map.put("email", u.getEmail() != null ? u.getEmail() : "");
+                    map.put("department", u.getDepartment() != null ? u.getDepartment() : "Corporate Services");
+                    map.put("designation", u.getDesignation() != null ? u.getDesignation() : "Staff Specialist");
+                    map.put("onlineStatus", u.getOnlineStatus() != null ? u.getOnlineStatus() : "OFFLINE");
+                    return map;
+                })
+                .collect(Collectors.toList());
+
+        // Ensure default specialist Sarah Lim is present if no staff exist
+        if (staffList.isEmpty() || staffList.stream().noneMatch(s -> "Sarah Lim".equalsIgnoreCase((String) s.get("name")))) {
+            Map<String, Object> defaultStaff = new HashMap<>();
+            defaultStaff.put("id", "usr-staff");
+            defaultStaff.put("name", "Sarah Lim");
+            defaultStaff.put("email", "staff@globalisor.com");
+            defaultStaff.put("department", "Corporate Secretarial & Incorporation");
+            defaultStaff.put("designation", "Senior Operations Specialist");
+            defaultStaff.put("onlineStatus", "ONLINE");
+            staffList.add(0, defaultStaff);
+        }
+
+        return ResponseEntity.ok(staffList);
+    }
+
+    @PutMapping("/admin/clients/{id}/assign-staff")
+    public ResponseEntity<?> assignStaffToClient(@PathVariable String id, @RequestBody Map<String, Object> req) {
+        Optional<User> uOpt = userRepository.findById(id);
+        if (uOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        User u = uOpt.get();
+        String staffId = (String) req.get("staffId");
+        String staffName = (String) req.get("staffName");
+        String staffEmail = (String) req.get("staffEmail");
+        String assignedBy = (String) req.getOrDefault("assignedBy", "Admin");
+
+        if (staffId == null || staffId.trim().isEmpty() || "unassign".equalsIgnoreCase(staffId)) {
+            u.setAssignedStaffId(null);
+            u.setAssignedStaffName(null);
+            u.setAssignedStaffEmail(null);
+            u.setAssignedAt(null);
+            u.setAssignedBy(null);
+        } else {
+            u.setAssignedStaffId(staffId);
+            u.setAssignedStaffName(staffName != null ? staffName : "Staff Specialist");
+            u.setAssignedStaffEmail(staffEmail != null ? staffEmail : "");
+            u.setAssignedAt(System.currentTimeMillis());
+            u.setAssignedBy(assignedBy);
+        }
+        userRepository.save(u);
+
+        // Also update associated requirements
+        List<Requirement> reqs = requirementRepository.findAll();
+        for (Requirement r : reqs) {
+            if (r.getUserId() != null && r.getUserId().equalsIgnoreCase(id)) {
+                r.setStaff(u.getAssignedStaffName() != null ? u.getAssignedStaffName() : "Unassigned");
+                requirementRepository.save(r);
+            }
+        }
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", u.getAssignedStaffId() != null ? ("Client assigned to " + u.getAssignedStaffName()) : "Client unassigned successfully.",
+                "client", u
+        ));
+    }
+
+    @PostMapping("/admin/clients/batch-assign-staff")
+    public ResponseEntity<?> batchAssignStaff(@RequestBody Map<String, Object> req) {
+        Object clientIdsObj = req.get("clientIds");
+        String staffId = (String) req.get("staffId");
+        String staffName = (String) req.get("staffName");
+        String staffEmail = (String) req.get("staffEmail");
+        String assignedBy = (String) req.getOrDefault("assignedBy", "Admin");
+
+        if (!(clientIdsObj instanceof List)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "clientIds array is required"));
+        }
+        List<String> clientIds = (List<String>) clientIdsObj;
+        if (clientIds.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "clientIds array cannot be empty"));
+        }
+
+        int updatedCount = 0;
+        for (String cid : clientIds) {
+            Optional<User> uOpt = userRepository.findById(cid);
+            if (uOpt.isPresent()) {
+                User u = uOpt.get();
+                if (staffId == null || staffId.trim().isEmpty() || "unassign".equalsIgnoreCase(staffId)) {
+                    u.setAssignedStaffId(null);
+                    u.setAssignedStaffName(null);
+                    u.setAssignedStaffEmail(null);
+                    u.setAssignedAt(null);
+                    u.setAssignedBy(null);
+                } else {
+                    u.setAssignedStaffId(staffId);
+                    u.setAssignedStaffName(staffName != null ? staffName : "Staff Specialist");
+                    u.setAssignedStaffEmail(staffEmail != null ? staffEmail : "");
+                    u.setAssignedAt(System.currentTimeMillis());
+                    u.setAssignedBy(assignedBy);
+                }
+                userRepository.save(u);
+                updatedCount++;
+            }
+        }
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "updatedCount", updatedCount,
+                "message", "Successfully updated " + updatedCount + " clients"
+        ));
     }
 
     @DeleteMapping("/clients")

@@ -60,6 +60,9 @@ public class MigratedEndpointsController {
     @Autowired
     CountryRepository countryRepository;
 
+    @Autowired
+    OnboardingRepository onboardingRepository;
+
     // --- BLOG ENDPOINTS ---
     @GetMapping("/blogs")
     public ResponseEntity<List<Blog>> getAllBlogs() {
@@ -1540,6 +1543,135 @@ public class MigratedEndpointsController {
     public ResponseEntity<Void> deleteCountry(@PathVariable String id) {
         countryRepository.deleteById(id);
         return ResponseEntity.noContent().build();
+    }
+
+    // --- STAFF ALLOTTED CLIENTS DIRECTORY ENDPOINTS ---
+    @GetMapping("/staff/clients")
+    public ResponseEntity<List<Map<String, Object>>> getStaffClients(
+            @RequestParam(required = false) String staffId,
+            @RequestParam(required = false) String staffEmail,
+            @RequestParam(required = false) String staffName) {
+
+        List<User> allUsers = userRepository.findAll();
+        List<ClientDocument> allDocs = clientDocumentRepository.findAll();
+        List<Requirement> allReqs = requirementRepository.findAll();
+        List<Kyc> allKyc = kycRepository.findAll();
+        List<Onboarding> allOnboardings = onboardingRepository.findAll();
+
+        List<User> clients = allUsers.stream().filter(u -> {
+            String role = u.getRole();
+            if (role != null) {
+                String tr = role.trim();
+                if (tr.equalsIgnoreCase("ADMIN") || tr.equalsIgnoreCase("STAFF")) {
+                    return false;
+                }
+            }
+            return true;
+        }).collect(Collectors.toList());
+
+        // Filter by assigned staff if specified
+        if ((staffId != null && !staffId.trim().isEmpty()) ||
+            (staffEmail != null && !staffEmail.trim().isEmpty()) ||
+            (staffName != null && !staffName.trim().isEmpty())) {
+
+            clients = clients.stream().filter(u -> {
+                boolean matchId = staffId != null && !staffId.trim().isEmpty() && staffId.equalsIgnoreCase(u.getAssignedStaffId());
+                boolean matchEmail = staffEmail != null && !staffEmail.trim().isEmpty() && staffEmail.equalsIgnoreCase(u.getAssignedStaffEmail());
+                boolean matchName = staffName != null && !staffName.trim().isEmpty() && staffName.equalsIgnoreCase(u.getAssignedStaffName());
+                return matchId || matchEmail || matchName;
+            }).collect(Collectors.toList());
+        }
+
+        List<Map<String, Object>> responseList = new ArrayList<>();
+        for (User u : clients) {
+            Map<String, Object> map = new HashMap<>();
+            String userId = u.getId();
+            String name = formatUserName(u);
+            String comp = u.getCompanyName() != null && !u.getCompanyName().isEmpty() && !"null".equalsIgnoreCase(u.getCompanyName())
+                    ? u.getCompanyName()
+                    : "Globalisor Entity (" + userId + ")";
+
+            map.put("id", userId);
+            map.put("name", name);
+            map.put("firstName", u.getFirstName() != null ? u.getFirstName() : "");
+            map.put("lastName", u.getLastName() != null ? u.getLastName() : "");
+            map.put("email", u.getEmail() != null ? u.getEmail() : "");
+            map.put("phone", u.getPhone() != null ? u.getPhone() : "");
+            map.put("companyName", comp);
+            map.put("assignedStaffId", u.getAssignedStaffId());
+            map.put("assignedStaffName", u.getAssignedStaffName() != null ? u.getAssignedStaffName() : "Unassigned");
+            map.put("assignedStaffEmail", u.getAssignedStaffEmail());
+            map.put("assignedAt", u.getAssignedAt());
+            map.put("assignedBy", u.getAssignedBy());
+
+            // Count documents
+            long docCount = allDocs.stream().filter(d -> userId.equalsIgnoreCase(d.getClientId())).count();
+            map.put("documentCount", docCount);
+
+            // Find application status
+            Optional<Requirement> reqOpt = allReqs.stream().filter(r -> userId.equalsIgnoreCase(r.getUserId())).findFirst();
+            map.put("applicationStatus", reqOpt.map(Requirement::getStatus).orElse("Active"));
+            map.put("applicationId", reqOpt.map(r -> r.getId() != null ? r.getId().replace("SRV-", "APP-") : "APP-" + userId).orElse("APP-" + userId));
+            map.put("service", reqOpt.map(r -> r.getData() != null && r.getData().get("serviceName") != null ? r.getData().get("serviceName").toString() : "Corporate Services & Incorporation").orElse("Corporate Services & Incorporation"));
+
+            // Find KYC status
+            Optional<Kyc> kycOpt = allKyc.stream().filter(k -> userId.equalsIgnoreCase(k.getClientId())).findFirst();
+            map.put("kycStatus", kycOpt.map(Kyc::getStatus).orElse("VERIFIED"));
+
+            // Find Onboarding progress
+            Optional<Onboarding> obOpt = allOnboardings.stream().filter(o -> userId.equalsIgnoreCase(o.getClientId())).findFirst();
+            map.put("onboardingProgress", obOpt.map(Onboarding::getProgressPercent).orElse(100));
+            map.put("onboardingStatus", obOpt.map(Onboarding::getStatus).orElse("approved"));
+
+            responseList.add(map);
+        }
+
+        return ResponseEntity.ok(responseList);
+    }
+
+    @GetMapping("/staff/clients/{id}")
+    public ResponseEntity<?> getStaffClientDetails(@PathVariable String id) {
+        Optional<User> uOpt = userRepository.findById(id);
+        if (uOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        User u = uOpt.get();
+        Map<String, Object> map = new HashMap<>();
+        String name = formatUserName(u);
+        String comp = u.getCompanyName() != null && !u.getCompanyName().isEmpty() && !"null".equalsIgnoreCase(u.getCompanyName())
+                ? u.getCompanyName()
+                : "Globalisor Entity (" + id + ")";
+
+        map.put("id", u.getId());
+        map.put("name", name);
+        map.put("firstName", u.getFirstName() != null ? u.getFirstName() : "");
+        map.put("lastName", u.getLastName() != null ? u.getLastName() : "");
+        map.put("email", u.getEmail() != null ? u.getEmail() : "");
+        map.put("phone", u.getPhone() != null ? u.getPhone() : "");
+        map.put("companyName", comp);
+        map.put("assignedStaffId", u.getAssignedStaffId());
+        map.put("assignedStaffName", u.getAssignedStaffName() != null ? u.getAssignedStaffName() : "Unassigned");
+        map.put("assignedStaffEmail", u.getAssignedStaffEmail());
+        map.put("assignedAt", u.getAssignedAt());
+        map.put("assignedBy", u.getAssignedBy());
+
+        // Get documents
+        List<ClientDocument> docs = clientDocumentRepository.findByClientId(id);
+        map.put("documents", docs);
+
+        // Get application
+        Optional<Requirement> reqOpt = requirementRepository.findAll().stream().filter(r -> id.equalsIgnoreCase(r.getUserId())).findFirst();
+        map.put("application", reqOpt.orElse(null));
+
+        // Get KYC
+        Optional<Kyc> kycOpt = kycRepository.findByClientId(id);
+        map.put("kyc", kycOpt.orElse(null));
+
+        // Get Onboarding
+        Optional<Onboarding> obOpt = onboardingRepository.findByClientId(id);
+        map.put("onboarding", obOpt.orElse(null));
+
+        return ResponseEntity.ok(map);
     }
 
     private String formatUserName(User u) {
