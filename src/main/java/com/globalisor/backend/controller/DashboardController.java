@@ -33,7 +33,13 @@ public class DashboardController {
 
     @GetMapping
     public ResponseEntity<?> getDashboardData() {
-        List<User> users = userRepository.findAll().stream()
+        List<User> allUsers = userRepository.findAll();
+        Set<String> activeStaffNames = allUsers.stream()
+                .filter(u -> "STAFF".equalsIgnoreCase(u.getRole()))
+                .map(u -> ((u.getFirstName() != null ? u.getFirstName() : "") + " " + (u.getLastName() != null ? u.getLastName() : "")).trim().toLowerCase())
+                .collect(Collectors.toSet());
+
+        List<User> users = allUsers.stream()
                 .filter(u -> {
                     String role = u.getRole();
                     if (role == null) return true;
@@ -110,9 +116,21 @@ public class DashboardController {
             boolean isOnline = chatWebSocketHandler.isUserOnline(user.getId());
             Long lastSeen = user.getLastSeenTime();
 
-            String assignedStaffName = (user.getAssignedStaffName() != null && !user.getAssignedStaffName().trim().isEmpty())
-                    ? user.getAssignedStaffName()
-                    : ((latestStaff != null && !latestStaff.trim().isEmpty() && !"Unassigned".equalsIgnoreCase(latestStaff)) ? latestStaff : "Unassigned");
+            String assignedStaffName = "Unassigned";
+            if (user.getAssignedStaffName() != null && !user.getAssignedStaffName().trim().isEmpty() && !"Unassigned".equalsIgnoreCase(user.getAssignedStaffName())) {
+                List<String> validNames = Arrays.stream(user.getAssignedStaffName().split(","))
+                        .map(String::trim)
+                        .filter(n -> !n.isEmpty() && !n.equalsIgnoreCase("Unassigned") && (activeStaffNames.isEmpty() || activeStaffNames.contains(n.toLowerCase())))
+                        .collect(Collectors.toList());
+                if (!validNames.isEmpty()) {
+                    assignedStaffName = String.join(", ", validNames);
+                }
+            } else if (latestStaff != null && !latestStaff.trim().isEmpty() && !"Unassigned".equalsIgnoreCase(latestStaff) && !"Sarah Lim".equalsIgnoreCase(latestStaff)) {
+                if (activeStaffNames.isEmpty() || activeStaffNames.contains(latestStaff.toLowerCase())) {
+                    assignedStaffName = latestStaff;
+                }
+            }
+
             String assignedStaffId = user.getAssignedStaffId() != null ? user.getAssignedStaffId() : "";
             String assignedStaffEmail = user.getAssignedStaffEmail() != null ? user.getAssignedStaffEmail() : "";
 
