@@ -110,6 +110,12 @@ public class DashboardController {
             boolean isOnline = chatWebSocketHandler.isUserOnline(user.getId());
             Long lastSeen = user.getLastSeenTime();
 
+            String assignedStaffName = (user.getAssignedStaffName() != null && !user.getAssignedStaffName().trim().isEmpty())
+                    ? user.getAssignedStaffName()
+                    : ((latestStaff != null && !latestStaff.trim().isEmpty() && !"Unassigned".equalsIgnoreCase(latestStaff)) ? latestStaff : "Unassigned");
+            String assignedStaffId = user.getAssignedStaffId() != null ? user.getAssignedStaffId() : "";
+            String assignedStaffEmail = user.getAssignedStaffEmail() != null ? user.getAssignedStaffEmail() : "";
+
             return new DashboardResponse.ClientInfo(
                     user.getId(),
                     user.getFirstName() + " " + user.getLastName(),
@@ -124,10 +130,15 @@ public class DashboardController {
                     approvedCount,
                     rejectedCount,
                     serviceTypes,
-                    latestStaff,
+                    assignedStaffName,
                     isOnline,
                     lastSeen,
-                    nomineeDirectors
+                    nomineeDirectors,
+                    assignedStaffId,
+                    assignedStaffName,
+                    assignedStaffEmail,
+                    user.getAssignedAt(),
+                    user.getAssignedBy()
             );
         }).collect(Collectors.toList());
 

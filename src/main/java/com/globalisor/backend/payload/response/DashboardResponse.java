@@ -35,5 +35,10 @@ public class DashboardResponse {
         private boolean isOnline;
         private Long lastSeenTime;
         private List<String> nomineeDirectors;
+        private String assignedStaffId;
+        private String assignedStaffName;
+        private String assignedStaffEmail;
+        private Long assignedAt;
+        private String assignedBy;
     }
 }
