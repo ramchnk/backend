@@ -1179,9 +1179,36 @@ public class AdminController {
             return ResponseEntity.notFound().build();
         }
         User u = uOpt.get();
-        String staffId = (String) req.get("staffId");
-        String staffName = (String) req.get("staffName");
-        String staffEmail = (String) req.get("staffEmail");
+
+        Object staffIdsObj = req.get("staffIds");
+        Object staffNamesObj = req.get("staffNames");
+        Object staffEmailsObj = req.get("staffEmails");
+
+        String staffId = null;
+        String staffName = null;
+        String staffEmail = null;
+
+        if (staffIdsObj instanceof List) {
+            List<?> list = (List<?>) staffIdsObj;
+            staffId = list.stream().map(Object::toString).map(String::trim).filter(s -> !s.isEmpty() && !"unassign".equalsIgnoreCase(s)).collect(Collectors.joining(", "));
+        } else if (req.get("staffId") != null) {
+            staffId = (String) req.get("staffId");
+        }
+
+        if (staffNamesObj instanceof List) {
+            List<?> list = (List<?>) staffNamesObj;
+            staffName = list.stream().map(Object::toString).map(String::trim).filter(s -> !s.isEmpty()).collect(Collectors.joining(", "));
+        } else if (req.get("staffName") != null) {
+            staffName = (String) req.get("staffName");
+        }
+
+        if (staffEmailsObj instanceof List) {
+            List<?> list = (List<?>) staffEmailsObj;
+            staffEmail = list.stream().map(Object::toString).map(String::trim).filter(s -> !s.isEmpty()).collect(Collectors.joining(", "));
+        } else if (req.get("staffEmail") != null) {
+            staffEmail = (String) req.get("staffEmail");
+        }
+
         String assignedBy = (String) req.getOrDefault("assignedBy", "Admin");
 
         if (staffId == null || staffId.trim().isEmpty() || "unassign".equalsIgnoreCase(staffId)) {
@@ -1192,7 +1219,7 @@ public class AdminController {
             u.setAssignedBy(null);
         } else {
             u.setAssignedStaffId(staffId);
-            u.setAssignedStaffName(staffName != null ? staffName : "Staff Specialist");
+            u.setAssignedStaffName(staffName != null && !staffName.trim().isEmpty() ? staffName : "Staff Specialist");
             u.setAssignedStaffEmail(staffEmail != null ? staffEmail : "");
             u.setAssignedAt(System.currentTimeMillis());
             u.setAssignedBy(assignedBy);

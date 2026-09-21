@@ -1575,9 +1575,13 @@ public class MigratedEndpointsController {
             (staffName != null && !staffName.trim().isEmpty())) {
 
             clients = clients.stream().filter(u -> {
-                boolean matchId = staffId != null && !staffId.trim().isEmpty() && staffId.equalsIgnoreCase(u.getAssignedStaffId());
-                boolean matchEmail = staffEmail != null && !staffEmail.trim().isEmpty() && staffEmail.equalsIgnoreCase(u.getAssignedStaffEmail());
-                boolean matchName = staffName != null && !staffName.trim().isEmpty() && staffName.equalsIgnoreCase(u.getAssignedStaffName());
+                String uId = u.getAssignedStaffId() != null ? u.getAssignedStaffId().toLowerCase() : "";
+                String uEmail = u.getAssignedStaffEmail() != null ? u.getAssignedStaffEmail().toLowerCase() : "";
+                String uName = u.getAssignedStaffName() != null ? u.getAssignedStaffName().toLowerCase() : "";
+
+                boolean matchId = staffId != null && !staffId.trim().isEmpty() && (uId.equals(staffId.toLowerCase()) || java.util.Arrays.asList(uId.split(",\\s*")).contains(staffId.toLowerCase()));
+                boolean matchEmail = staffEmail != null && !staffEmail.trim().isEmpty() && (uEmail.equals(staffEmail.toLowerCase()) || java.util.Arrays.asList(uEmail.split(",\\s*")).contains(staffEmail.toLowerCase()));
+                boolean matchName = staffName != null && !staffName.trim().isEmpty() && (uName.equals(staffName.toLowerCase()) || java.util.Arrays.asList(uName.split(",\\s*")).contains(staffName.toLowerCase()));
                 return matchId || matchEmail || matchName;
             }).collect(Collectors.toList());
         }
