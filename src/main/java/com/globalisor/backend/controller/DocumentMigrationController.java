@@ -79,9 +79,7 @@ public class DocumentMigrationController {
         // Map subfolders into parents hierarchically (Level 0 -> Level 1 -> Level 2)
         Map<String, DocumentCategory> catMap = new LinkedHashMap<>();
         for (DocumentCategory cat : list) {
-            if (cat.getSubFolders() == null) {
-                cat.setSubFolders(new ArrayList<>());
-            }
+            cat.setSubFolders(new ArrayList<>());
             if (cat.getLevel() == null) {
                 cat.setLevel(cat.getParentKey() == null || cat.getParentKey().trim().isEmpty() ? 0 : 1);
             }
@@ -193,10 +191,12 @@ public class DocumentMigrationController {
                     category.setRootKey(parent.getRootKey() != null ? parent.getRootKey() : (parentLevel == 0 ? parent.getKey() : parent.getParentKey()));
                     category.setFullPath((parent.getFullPath() != null ? parent.getFullPath() : parent.getKey()) + "/" + category.getKey());
 
-                    if (parent.getSubFolders() == null) parent.setSubFolders(new ArrayList<>());
-                    if (!parent.getSubFolders().contains(category.getLabel())) {
-                        parent.getSubFolders().add(category.getLabel());
-                        documentCategoryRepository.save(parent);
+                    if ("COMMON".equalsIgnoreCase(scope)) {
+                        if (parent.getSubFolders() == null) parent.setSubFolders(new ArrayList<>());
+                        if (!parent.getSubFolders().contains(category.getLabel())) {
+                            parent.getSubFolders().add(category.getLabel());
+                            documentCategoryRepository.save(parent);
+                        }
                     }
                 } else {
                     category.setLevel(1);
@@ -325,10 +325,12 @@ public class DocumentMigrationController {
 
             DocumentCategory saved = documentCategoryRepository.save(subCat);
 
-            if (parent.getSubFolders() == null) parent.setSubFolders(new ArrayList<>());
-            if (!parent.getSubFolders().contains(name)) {
-                parent.getSubFolders().add(name);
-                documentCategoryRepository.save(parent);
+            if ("COMMON".equalsIgnoreCase(scope)) {
+                if (parent.getSubFolders() == null) parent.setSubFolders(new ArrayList<>());
+                if (!parent.getSubFolders().contains(name)) {
+                    parent.getSubFolders().add(name);
+                    documentCategoryRepository.save(parent);
+                }
             }
 
             return ResponseEntity.ok(saved);
