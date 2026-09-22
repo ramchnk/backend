@@ -57,10 +57,23 @@ public class DocumentMigrationController {
     // ==========================================
 
     @GetMapping("/categories")
-    public ResponseEntity<List<DocumentCategory>> getCategories() {
-        List<DocumentCategory> list = documentCategoryRepository.findAllByOrderBySortOrderAsc();
-        if (list.isEmpty()) {
+    public ResponseEntity<List<DocumentCategory>> getCategories(@RequestParam(value = "clientId", required = false) String clientId) {
+        List<DocumentCategory> all = documentCategoryRepository.findAllByOrderBySortOrderAsc();
+        if (all.isEmpty()) {
             return ResponseEntity.ok(Collections.emptyList());
+        }
+
+        List<DocumentCategory> list;
+        if (clientId != null && !clientId.trim().isEmpty()) {
+            String targetClientId = clientId.trim();
+            list = all.stream().filter(cat -> {
+                String cId = cat.getClientId();
+                String sc = cat.getScope();
+                boolean isCommon = sc == null || "COMMON".equalsIgnoreCase(sc) || cId == null || cId.trim().isEmpty();
+                return isCommon || targetClientId.equalsIgnoreCase(cId.trim());
+            }).collect(java.util.stream.Collectors.toList());
+        } else {
+            list = all;
         }
 
         // Map subfolders into parents hierarchically (Level 0 -> Level 1 -> Level 2)
@@ -71,6 +84,9 @@ public class DocumentMigrationController {
             }
             if (cat.getLevel() == null) {
                 cat.setLevel(cat.getParentKey() == null || cat.getParentKey().trim().isEmpty() ? 0 : 1);
+            }
+            if (cat.getScope() == null || cat.getScope().trim().isEmpty()) {
+                cat.setScope("COMMON");
             }
             catMap.put(cat.getKey().toLowerCase(), cat);
         }
@@ -117,6 +133,9 @@ public class DocumentMigrationController {
             cat.setLevel(0);
             cat.setFullPath(cat.getKey());
             cat.setSubFolders(new ArrayList<>());
+            cat.setScope("COMMON");
+            cat.setClientId(null);
+            cat.setClientName(null);
             toSave.add(cat);
         }
         return documentCategoryRepository.saveAll(toSave);
@@ -135,6 +154,18 @@ public class DocumentMigrationController {
             category.setKey(category.getKey().trim());
             if (category.getLabel() == null || category.getLabel().trim().isEmpty()) {
                 category.setLabel(category.getKey());
+            }
+
+            // Scope handling: COMMON vs CLIENT_SPECIFIC
+            String scope = category.getScope() != null ? category.getScope().trim() : "COMMON";
+            if ("CLIENT_SPECIFIC".equalsIgnoreCase(scope)) {
+                category.setScope("CLIENT_SPECIFIC");
+                if (category.getClientId() != null) category.setClientId(category.getClientId().trim());
+                if (category.getClientName() != null) category.setClientName(category.getClientName().trim());
+            } else {
+                category.setScope("COMMON");
+                category.setClientId(null);
+                category.setClientName(null);
             }
 
             // Check if creating a subfolder
@@ -172,10 +203,15 @@ public class DocumentMigrationController {
                     category.setRootKey(parentKey);
                 }
 
-                // Check duplicate subfolder under same parent
+                // Check duplicate subfolder under same parent and scope/client
                 Optional<DocumentCategory> existingSub = documentCategoryRepository.findByKeyIgnoreCaseAndParentKeyIgnoreCase(category.getKey(), parentKey);
                 if (existingSub.isPresent()) {
-                    return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Sub-folder with this name already exists in " + parentKey));
+                    DocumentCategory existing = existingSub.get();
+                    boolean sameClient = (category.getClientId() == null && existing.getClientId() == null) ||
+                            (category.getClientId() != null && category.getClientId().equalsIgnoreCase(existing.getClientId()));
+                    if (sameClient) {
+                        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Sub-folder with this name already exists in " + parentKey));
+                    }
                 }
             } else {
                 category.setLevel(0);
@@ -183,7 +219,12 @@ public class DocumentMigrationController {
                 category.setFullPath(category.getKey());
                 Optional<DocumentCategory> existing = documentCategoryRepository.findByKeyIgnoreCase(category.getKey());
                 if (existing.isPresent() && (existing.get().getParentKey() == null || existing.get().getParentKey().isEmpty())) {
-                    return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Category with this name already exists"));
+                    DocumentCategory ex = existing.get();
+                    boolean sameClient = (category.getClientId() == null && ex.getClientId() == null) ||
+                            (category.getClientId() != null && category.getClientId().equalsIgnoreCase(ex.getClientId()));
+                    if (sameClient) {
+                        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Category with this name already exists"));
+                    }
                 }
             }
 
@@ -237,9 +278,30 @@ public class DocumentMigrationController {
             String rootKey = parent.getRootKey() != null ? parent.getRootKey() : (parentLevel == 0 ? parent.getKey() : parent.getParentKey());
             String fullPath = (parent.getFullPath() != null ? parent.getFullPath() : parent.getKey()) + "/" + name;
 
+            String scope = (String) body.get("scope");
+            String clientId = (String) body.get("clientId");
+            String clientName = (String) body.get("clientName");
+            if (scope == null || scope.trim().isEmpty()) {
+                scope = parent.getScope() != null ? parent.getScope() : "COMMON";
+                if (clientId == null) clientId = parent.getClientId();
+                if (clientName == null) clientName = parent.getClientName();
+            }
+            if ("CLIENT_SPECIFIC".equalsIgnoreCase(scope)) {
+                if (clientId != null) clientId = clientId.trim();
+            } else {
+                scope = "COMMON";
+                clientId = null;
+                clientName = null;
+            }
+
             Optional<DocumentCategory> existingSub = documentCategoryRepository.findByKeyIgnoreCaseAndParentKeyIgnoreCase(name, actualParentKey);
             if (existingSub.isPresent()) {
-                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Sub-folder '" + name + "' already exists under " + actualParentKey));
+                DocumentCategory ex = existingSub.get();
+                boolean sameClient = (clientId == null && ex.getClientId() == null) ||
+                        (clientId != null && clientId.equalsIgnoreCase(ex.getClientId()));
+                if (sameClient) {
+                    return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Sub-folder '" + name + "' already exists under " + actualParentKey));
+                }
             }
 
             DocumentCategory subCat = DocumentCategory.builder()
@@ -250,6 +312,9 @@ public class DocumentMigrationController {
                     .rootKey(rootKey)
                     .level(childLevel)
                     .fullPath(fullPath)
+                    .scope(scope)
+                    .clientId(clientId)
+                    .clientName(clientName)
                     .description((String) body.getOrDefault("description", ""))
                     .icon((String) body.getOrDefault("icon", "folder"))
                     .color((String) body.getOrDefault("color", parent.getColor() != null ? parent.getColor() : "blue"))
@@ -268,7 +333,7 @@ public class DocumentMigrationController {
 
             return ResponseEntity.ok(saved);
         } catch (Exception e) {
-            log.error("Failed to create sub-folder under {}: {}", parentKey, e.getMessage(), e);
+            log.error("Failed to create sub-folder: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
         }
     }

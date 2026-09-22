@@ -30,4 +30,10 @@ public class DocumentCategory {
     private String fullPath;    // e.g. "Tax/FY 2024/Q1 Returns"
     @Builder.Default
     private java.util.List<String> subFolders = new java.util.ArrayList<>();
+
+    // Folder Scope: "COMMON" (all clients) or "CLIENT_SPECIFIC" (specific client account)
+    @Builder.Default
+    private String scope = "COMMON";
+    private String clientId;
+    private String clientName;
 }

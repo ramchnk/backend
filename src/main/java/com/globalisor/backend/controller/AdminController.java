@@ -578,32 +578,50 @@ public class AdminController {
 
     @PostMapping("/admin/staff")
     public ResponseEntity<?> createStaff(@RequestBody Map<String, String> body) {
-        String firstName = body.get("firstName");
-        String lastName = body.get("lastName");
-        
-        // Generate email: firstname.lastname@globalisor.com
-        String baseEmail = (firstName + "." + lastName).toLowerCase().replaceAll("[^a-z0-9]", "");
-        String email = baseEmail + "@globalisor.com";
-        
-        // Check uniqueness and append suffix if exists
-        String encryptedEmail = encryptionUtils.encryptQueryable(email);
-        int suffix = 1;
-        while (userRepository.existsByEmail(encryptedEmail)) {
-            email = baseEmail + suffix + "@globalisor.com";
-            encryptedEmail = encryptionUtils.encryptQueryable(email);
-            suffix++;
+        String firstName = body.get("firstName") != null ? body.get("firstName").trim() : "";
+        String lastName = body.get("lastName") != null ? body.get("lastName").trim() : "";
+        String email = body.get("email") != null ? body.get("email").trim() : "";
+        String department = body.get("department") != null ? body.get("department").trim() : "Corporate Secretarial & Incorporation";
+        String designation = body.get("designation") != null ? body.get("designation").trim() : "Senior Operations Specialist";
+        String rawPassword = body.get("password") != null && !body.get("password").trim().isEmpty() ? body.get("password").trim() : null;
+        String phone = body.get("phone") != null ? body.get("phone").trim() : "";
+
+        // If email not provided, generate email: firstname.lastname@globalisor.com
+        if (email.isEmpty()) {
+            String baseEmail = (firstName + "." + lastName).toLowerCase().replaceAll("[^a-z0-9]", "");
+            if (baseEmail.isEmpty()) baseEmail = "staff";
+            email = baseEmail + "@globalisor.com";
+            String encryptedEmail = encryptionUtils.encryptQueryable(email);
+            int suffix = 1;
+            while (userRepository.existsByEmail(encryptedEmail)) {
+                email = baseEmail + suffix + "@globalisor.com";
+                encryptedEmail = encryptionUtils.encryptQueryable(email);
+                suffix++;
+            }
+        } else {
+            String encryptedEmail = encryptionUtils.encryptQueryable(email);
+            if (userRepository.existsByEmail(encryptedEmail)) {
+                return ResponseEntity.badRequest().body(Map.of("message", "Error: Email is already registered."));
+            }
         }
-        
-        // Generate password: Glob-[4-digit-number]
-        int randomNum = (int) (Math.random() * 9000) + 1000;
-        String rawPassword = "Glob-" + randomNum;
+
+        // Generate password if none provided: Glob-[4-digit-number]
+        if (rawPassword == null || rawPassword.isEmpty()) {
+            int randomNum = (int) (Math.random() * 9000) + 1000;
+            rawPassword = "Glob-" + randomNum;
+        }
         String encodedPassword = encoder.encode(rawPassword);
-        
+
         User staff = new User(firstName, lastName, email, encodedPassword);
         staff.setRole("STAFF");
         staff.setPlainPassword(rawPassword);
+        staff.setDepartment(department);
+        staff.setDesignation(designation);
+        staff.setPhone(phone);
+        staff.setOnlineStatus("ONLINE");
+        staff.setCardStatus("ACTIVE");
         userRepository.save(staff);
-        
+
         try {
             Map<String, Object> event = new HashMap<>();
             event.put("type", "new_user");
@@ -617,14 +635,18 @@ public class AdminController {
         } catch (Exception e) {
             // ignore
         }
-        
-        Map<String, String> response = new HashMap<>();
+
+        Map<String, Object> response = new HashMap<>();
         response.put("email", email);
         response.put("password", rawPassword);
         response.put("id", staff.getId());
         response.put("firstName", firstName);
         response.put("lastName", lastName);
-        
+        response.put("department", department);
+        response.put("designation", designation);
+        response.put("phone", phone);
+        response.put("onlineStatus", staff.getOnlineStatus());
+
         return ResponseEntity.ok(response);
     }
 
@@ -640,6 +662,10 @@ public class AdminController {
                 staff.put("lastName", u.getLastName());
                 staff.put("email", u.getEmail());
                 staff.put("password", u.getPlainPassword() != null ? u.getPlainPassword() : "password123");
+                staff.put("department", u.getDepartment() != null ? u.getDepartment() : "Corporate Secretarial & Incorporation");
+                staff.put("designation", u.getDesignation() != null ? u.getDesignation() : "Senior Operations Specialist");
+                staff.put("onlineStatus", u.getOnlineStatus() != null ? u.getOnlineStatus() : "ONLINE");
+                staff.put("phone", u.getPhone() != null ? u.getPhone() : "");
                 staffList.add(staff);
             }
         }
@@ -648,29 +674,79 @@ public class AdminController {
 
     @PutMapping("/admin/staff/update")
     public ResponseEntity<?> updateStaff(@RequestBody Map<String, String> body) {
+        String id = body.get("id");
+        String origEmail = body.get("origEmail");
         String email = body.get("email");
         String firstName = body.get("firstName");
         String lastName = body.get("lastName");
-        
-        String encryptedEmail = encryptionUtils.encryptQueryable(email);
-        Optional<User> userOpt = userRepository.findByEmail(encryptedEmail);
-        
-        if (userOpt.isEmpty()) {
+        String department = body.get("department");
+        String designation = body.get("designation");
+        String password = body.get("password");
+        String onlineStatus = body.get("onlineStatus");
+        String phone = body.get("phone");
+
+        User staff = null;
+        if (id != null && !id.trim().isEmpty()) {
+            staff = userRepository.findById(id).orElse(null);
+        }
+        if (staff == null && origEmail != null && !origEmail.trim().isEmpty()) {
+            String encryptedOrigEmail = encryptionUtils.encryptQueryable(origEmail);
+            staff = userRepository.findByEmail(encryptedOrigEmail).orElse(null);
+            if (staff == null) {
+                staff = userRepository.findAll().stream()
+                        .filter(u -> u.getEmail() != null && u.getEmail().equalsIgnoreCase(origEmail))
+                        .findFirst().orElse(null);
+            }
+        }
+        if (staff == null && email != null && !email.trim().isEmpty()) {
+            String encryptedEmail = encryptionUtils.encryptQueryable(email);
+            staff = userRepository.findByEmail(encryptedEmail).orElse(null);
+            if (staff == null) {
+                staff = userRepository.findAll().stream()
+                        .filter(u -> u.getEmail() != null && u.getEmail().equalsIgnoreCase(email))
+                        .findFirst().orElse(null);
+            }
+        }
+
+        if (staff == null) {
             return ResponseEntity.notFound().build();
         }
-        
-        User staff = userOpt.get();
-        if (firstName != null) staff.setFirstName(firstName);
-        if (lastName != null) staff.setLastName(lastName);
-        
+
+        if (firstName != null) staff.setFirstName(firstName.trim());
+        if (lastName != null) staff.setLastName(lastName.trim());
+        if (department != null) staff.setDepartment(department.trim());
+        if (designation != null) staff.setDesignation(designation.trim());
+        if (onlineStatus != null) staff.setOnlineStatus(onlineStatus.trim());
+        if (phone != null) staff.setPhone(phone.trim());
+
+        if (email != null && !email.trim().isEmpty() && !email.equalsIgnoreCase(staff.getEmail())) {
+            String checkEmail = email.trim();
+            String encryptedCheck = encryptionUtils.encryptQueryable(checkEmail);
+            Optional<User> existingOpt = userRepository.findByEmail(encryptedCheck);
+            if (existingOpt.isPresent() && !existingOpt.get().getId().equals(staff.getId())) {
+                return ResponseEntity.badRequest().body(Map.of("message", "Error: New email is already used by another account."));
+            }
+            staff.setEmail(checkEmail);
+        }
+
+        if (password != null && !password.trim().isEmpty()) {
+            staff.setPlainPassword(password.trim());
+            staff.setPassword(encoder.encode(password.trim()));
+        }
+
         userRepository.save(staff);
-        
-        Map<String, String> response = new HashMap<>();
-        response.put("email", email);
+
+        Map<String, Object> response = new HashMap<>();
         response.put("id", staff.getId());
+        response.put("email", staff.getEmail());
         response.put("firstName", staff.getFirstName());
         response.put("lastName", staff.getLastName());
-        
+        response.put("department", staff.getDepartment());
+        response.put("designation", staff.getDesignation());
+        response.put("password", staff.getPlainPassword());
+        response.put("onlineStatus", staff.getOnlineStatus());
+        response.put("phone", staff.getPhone());
+
         return ResponseEntity.ok(response);
     }
 
