@@ -153,6 +153,8 @@ public class TaskService {
         if (updated.getDescription() != null) existing.setDescription(updated.getDescription());
         if (updated.getCategory() != null) existing.setCategory(updated.getCategory());
         if (updated.getType() != null) existing.setType(updated.getType());
+        if (updated.getTaskScope() != null) existing.setTaskScope(updated.getTaskScope());
+        if (updated.getIsInternal() != null) existing.setIsInternal(updated.getIsInternal());
         if (updated.getPriority() != null) existing.setPriority(updated.getPriority());
         if (updated.getStatus() != null) existing.setStatus(updated.getStatus());
         if (updated.getCompanyName() != null) existing.setCompanyName(updated.getCompanyName());
@@ -166,8 +168,34 @@ public class TaskService {
     }
 
     public List<Task> getAllTasks(String status, String priority, String category, String clientId, String companyName, String assignedToId) {
+        return getAllTasks(status, priority, category, clientId, companyName, assignedToId, null, null);
+    }
+
+    public List<Task> getAllTasks(String status, String priority, String category, String clientId, String companyName, String assignedToId, String taskScope, Boolean isInternal) {
         List<Task> all = taskRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
         return all.stream().filter(task -> {
+            boolean isTaskInternal = Boolean.TRUE.equals(task.getIsInternal()) || "INTERNAL".equalsIgnoreCase(task.getTaskScope());
+
+            // Scope / Internal filter
+            if (taskScope != null && !taskScope.isEmpty() && !taskScope.equalsIgnoreCase("ALL")) {
+                if ("INTERNAL".equalsIgnoreCase(taskScope)) {
+                    if (!isTaskInternal) return false;
+                } else if ("CLIENT".equalsIgnoreCase(taskScope)) {
+                    if (isTaskInternal) return false;
+                }
+            }
+            if (isInternal != null) {
+                if (isInternal && !isTaskInternal) return false;
+                if (!isInternal && isTaskInternal) return false;
+            }
+
+            // If queried specifically by clientId or companyName without requesting internal tasks, strictly hide internal tasks
+            boolean clientQuery = (clientId != null && !clientId.isEmpty() && !"ALL".equalsIgnoreCase(clientId)) ||
+                                  (companyName != null && !companyName.isEmpty() && !"ALL".equalsIgnoreCase(companyName));
+            if (clientQuery && taskScope == null && isInternal == null) {
+                if (isTaskInternal) return false;
+            }
+
             if (status != null && !status.isEmpty() && !status.equalsIgnoreCase("ALL") && !status.equalsIgnoreCase(task.getStatus())) {
                 return false;
             }
@@ -213,15 +241,33 @@ public class TaskService {
         long now = System.currentTimeMillis();
         task.setCreatedAt(now);
         task.setUpdatedAt(now);
+
+        boolean isInternalTask = Boolean.TRUE.equals(task.getIsInternal()) ||
+                "INTERNAL".equalsIgnoreCase(task.getTaskScope()) ||
+                "INTERNAL".equalsIgnoreCase(task.getType());
+
+        if (isInternalTask) {
+            task.setIsInternal(true);
+            task.setTaskScope("INTERNAL");
+            if (task.getType() == null || task.getType().isEmpty()) {
+                task.setType("INTERNAL");
+            }
+            if (task.getCategory() == null || task.getCategory().isEmpty()) {
+                task.setCategory("Internal Operations");
+            }
+        } else {
+            task.setIsInternal(false);
+            task.setTaskScope("CLIENT");
+            if (task.getType() == null || task.getType().isEmpty()) {
+                task.setType("REQUEST");
+            }
+        }
         
         if (task.getStatus() == null || task.getStatus().isEmpty()) {
             task.setStatus("PENDING");
         }
         if (task.getPriority() == null || task.getPriority().isEmpty()) {
             task.setPriority("MEDIUM");
-        }
-        if (task.getType() == null || task.getType().isEmpty()) {
-            task.setType("REQUEST");
         }
         if (task.getAttachments() == null) {
             task.setAttachments(new ArrayList<>());
@@ -233,13 +279,19 @@ public class TaskService {
             task.setActivityLog(new ArrayList<>());
         }
 
-        String creatorName = task.getCreatedBy() != null ? task.getCreatedBy().getName() : "Client";
-        String creatorRole = task.getCreatedBy() != null ? task.getCreatedBy().getRole() : "CLIENT";
+        String creatorName = task.getCreatedBy() != null ? task.getCreatedBy().getName() : "Staff";
+        String creatorRole = task.getCreatedBy() != null ? task.getCreatedBy().getRole() : "STAFF";
+
+        String logDetails = isInternalTask
+                ? "Internal task created: " + task.getTitle()
+                : (creatorRole.equalsIgnoreCase("CLIENT")
+                    ? "Task submitted by client: " + task.getTitle()
+                    : "Task created against client by " + creatorName + ": " + task.getTitle());
 
         task.getActivityLog().add(Task.ActivityLog.builder()
                 .id("act-" + UUID.randomUUID())
                 .action("CREATED")
-                .details("Task created: " + task.getTitle())
+                .details(logDetails)
                 .performedBy(creatorName)
                 .performedByRole(creatorRole)
                 .timestamp(now)
@@ -247,40 +299,52 @@ public class TaskService {
 
         Task saved = taskRepository.save(task);
 
-        // Notify client
-        try {
-            if (task.getClientId() != null) {
+        if (isInternalTask) {
+            // Notify assigned staff/admin for internal task
+            if (task.getAssignedTo() != null && task.getAssignedTo().getId() != null) {
+                try {
+                    notificationService.sendNotification(
+                            task.getAssignedTo().getId(),
+                            "New Internal Task: " + task.getTicketNumber(),
+                            "You have been assigned an internal to-do: " + task.getTitle(),
+                            "TASK_ASSIGNED",
+                            saved.getId(),
+                            "Info"
+                    );
+                } catch (Exception ignored) {}
+            }
+        } else {
+            // Notify client for client task
+            try {
+                if (task.getClientId() != null) {
+                    notificationService.sendNotification(
+                            task.getClientId(),
+                            "Task Raised: " + task.getTicketNumber(),
+                            "A task '" + task.getTitle() + "' has been logged for your company.",
+                            "TASK_CREATED",
+                            saved.getId(),
+                            "Info",
+                            "/client/portal.html?tab=tasks"
+                    );
+                }
+            } catch (Exception ignored) {}
+
+            // Notify admin & staff for real-time toast notification
+            try {
+                String clientLabel = saved.getClientName() != null ? saved.getClientName() : "Client";
+                if (saved.getCompanyName() != null && !saved.getCompanyName().isEmpty()) {
+                    clientLabel += " (" + saved.getCompanyName() + ")";
+                }
                 notificationService.sendNotification(
-                        task.getClientId(),
-                        "Task Raised: " + task.getTicketNumber(),
-                        "Your request '" + task.getTitle() + "' has been submitted successfully.",
+                        "admin",
+                        "New Task Raised: " + saved.getTicketNumber(),
+                        clientLabel + " - " + saved.getTitle(),
                         "TASK_CREATED",
                         saved.getId(),
-                        "Info",
-                        "/client/portal.html?tab=tasks"
+                        "High",
+                        "tasks.html?id=" + saved.getId()
                 );
-            }
-        } catch (Exception e) {
-            // Ignore notification failure during creation
-        }
-
-        // Notify admin & staff for real-time toast notification
-        try {
-            String clientLabel = saved.getClientName() != null ? saved.getClientName() : "Client";
-            if (saved.getCompanyName() != null && !saved.getCompanyName().isEmpty()) {
-                clientLabel += " (" + saved.getCompanyName() + ")";
-            }
-            notificationService.sendNotification(
-                    "admin",
-                    "New Task Raised: " + saved.getTicketNumber(),
-                    clientLabel + " raised a new task: " + saved.getTitle(),
-                    "TASK_CREATED",
-                    saved.getId(),
-                    "High",
-                    "tasks.html?id=" + saved.getId()
-            );
-        } catch (Exception e) {
-            // Ignore notification failure
+            } catch (Exception ignored) {}
         }
 
         return saved;
@@ -614,7 +678,7 @@ public class TaskService {
             assignees.add(staff);
         }
 
-        // 5. Standard Categories
+        // 5. Standard Categories (Client-facing)
         List<String> defaultCategories = List.of(
                 "Registered Address Change",
                 "Director / Shareholder Change",
@@ -632,11 +696,23 @@ public class TaskService {
         Set<String> catSet = new LinkedHashSet<>(defaultCategories);
         try {
             taskRepository.findAll().forEach(t -> {
-                if (t.getCategory() != null && !t.getCategory().trim().isEmpty()) {
+                if (!Boolean.TRUE.equals(t.getIsInternal()) && t.getCategory() != null && !t.getCategory().trim().isEmpty()) {
                     catSet.add(t.getCategory().trim());
                 }
             });
         } catch (Exception ignored) {}
+
+        // 6. Internal Categories (Staff / Management To-Dos)
+        List<String> internalCategories = List.of(
+                "Management Directive & Request",
+                "Internal Operations & SOP",
+                "Compliance & Due Diligence Audit",
+                "Document Filing & Archival",
+                "Staff Training & Onboarding",
+                "IT & System Administration",
+                "Billing & Invoicing Follow-up",
+                "General Internal To-Do"
+        );
 
         List<Map<String, Object>> priorities = List.of(
                 Map.of("value", "LOW", "label", "Low"),
@@ -649,6 +725,7 @@ public class TaskService {
         result.put("companies", companies);
         result.put("assignees", assignees);
         result.put("categories", new ArrayList<>(catSet));
+        result.put("internalCategories", internalCategories);
         result.put("priorities", priorities);
         return result;
     }

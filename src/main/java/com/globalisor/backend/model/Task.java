@@ -42,13 +42,20 @@ public class Task {
     private String title;
     private String description;
     
-    // Type: REQUEST, CHANGE, QUERY, COMPLIANCE, GENERAL
+    // Type: REQUEST, CHANGE, QUERY, COMPLIANCE, GENERAL, INTERNAL
     @Indexed
     private String type; 
     
-    // Category: "Registered Address Change", "Director Appointment", "Tax Query", "Share Capital", etc.
+    // Category: "Registered Address Change", "Director Appointment", "Tax Query", "Share Capital", "Internal Operations", etc.
     @Indexed
     private String category;
+
+    // Scope: "CLIENT" (Task Against Client) or "INTERNAL" (Internal Staff/Management To-Do)
+    @Indexed
+    private String taskScope;
+
+    @Indexed
+    private Boolean isInternal;
 
     // Priority: LOW, MEDIUM, HIGH, URGENT
     @Indexed
