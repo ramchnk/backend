@@ -18,6 +18,9 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 @Component
 public class ChatWebSocketHandler extends TextWebSocketHandler {
 
@@ -89,7 +92,25 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     }
 
     @Override
+    public void handleTransportError(WebSocketSession session, Throwable exception) throws Exception {
+        log.warn("WebSocket transport error for session {}: {}", session.getId(), exception != null ? exception.getMessage() : "unknown");
+        cleanupSession(session);
+        try {
+            if (session.isOpen()) {
+                session.close(CloseStatus.SERVER_ERROR);
+            }
+        } catch (Exception e) {
+            // ignore
+        }
+    }
+
+    @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
+        cleanupSession(session);
+    }
+
+    private void cleanupSession(WebSocketSession session) {
+        if (session == null) return;
         sessions.remove(session.getId());
 
         String userId = (String) session.getAttributes().get("userId");
@@ -103,11 +124,15 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                     
                     // Mark last seen in DB
                     Long lastSeen = System.currentTimeMillis();
-                    Optional<User> userOpt = userRepository.findById(userId);
-                    if (userOpt.isPresent()) {
-                        User user = userOpt.get();
-                        user.setLastSeenTime(lastSeen);
-                        userRepository.save(user);
+                    try {
+                        Optional<User> userOpt = userRepository.findById(userId);
+                        if (userOpt.isPresent()) {
+                            User user = userOpt.get();
+                            user.setLastSeenTime(lastSeen);
+                            userRepository.save(user);
+                        }
+                    } catch (Exception e) {
+                        log.warn("Failed to update last seen for user {}: {}", userId, e.getMessage());
                     }
                     
                     // Broadcast offline status
@@ -240,8 +265,10 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 try {
                     session.sendMessage(textMessage);
                 } catch (IOException e) {
-                    // ignore
+                    cleanupSession(session);
                 }
+            } else {
+                cleanupSession(session);
             }
         }
     }
@@ -252,11 +279,15 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             TextMessage textMessage = new TextMessage(payload);
             for (String sessionId : active) {
                 WebSocketSession session = sessions.get(sessionId);
-                if (session != null && session.isOpen()) {
-                    try {
-                        session.sendMessage(textMessage);
-                    } catch (IOException e) {
-                        // ignore
+                if (session != null) {
+                    if (session.isOpen()) {
+                        try {
+                            session.sendMessage(textMessage);
+                        } catch (IOException e) {
+                            cleanupSession(session);
+                        }
+                    } else {
+                        cleanupSession(session);
                     }
                 }
             }
@@ -274,12 +305,14 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                             try {
                                 session.sendMessage(textMessage);
                             } catch (IOException e) {
-                                // ignore
+                                cleanupSession(session);
                             }
                             break;
                         }
                     }
                 }
+            } else {
+                cleanupSession(session);
             }
         }
     }

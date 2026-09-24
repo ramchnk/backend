@@ -13,6 +13,19 @@ import java.util.Map;
 public class DashboardResponse {
     private List<ClientInfo> clients;
     private Map<String, Long> stats;
+    private int page;
+    private int size;
+    private long totalElements;
+    private int totalPages;
+
+    public DashboardResponse(List<ClientInfo> clients, Map<String, Long> stats) {
+        this.clients = clients;
+        this.stats = stats;
+        this.page = 1;
+        this.size = clients != null ? clients.size() : 0;
+        this.totalElements = clients != null ? clients.size() : 0;
+        this.totalPages = 1;
+    }
 
     @Data
     @NoArgsConstructor

@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.*;
@@ -32,7 +33,12 @@ public class DashboardController {
     ChatWebSocketHandler chatWebSocketHandler;
 
     @GetMapping
-    public ResponseEntity<?> getDashboardData() {
+    public ResponseEntity<?> getDashboardData(
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "size", defaultValue = "0") int size,
+            @RequestParam(value = "search", required = false) String search,
+            @RequestParam(value = "status", required = false) String status,
+            @RequestParam(value = "staff", required = false) String staff) {
         List<User> allUsers = userRepository.findAll();
         Set<String> activeStaffNames = allUsers.stream()
                 .filter(u -> "STAFF".equalsIgnoreCase(u.getRole()))
@@ -167,6 +173,21 @@ public class DashboardController {
         stats.put("approved", requirements.stream().filter(r -> "approved".equals(r.getStatus())).count());
         stats.put("rejected", requirements.stream().filter(r -> "rejected".equals(r.getStatus())).count());
 
-        return ResponseEntity.ok(new DashboardResponse(clientInfos, stats));
+        long totalElements = clientInfos.size();
+        if (size > 0) {
+            int safePage = Math.max(0, page);
+            int totalPages = (int) Math.ceil((double) totalElements / size);
+            int fromIndex = Math.min(safePage * size, (int) totalElements);
+            int toIndex = Math.min(fromIndex + size, (int) totalElements);
+            List<DashboardResponse.ClientInfo> pagedList = clientInfos.subList(fromIndex, toIndex);
+            return ResponseEntity.ok(new DashboardResponse(pagedList, stats, safePage + 1, size, totalElements, totalPages));
+        }
+
+        DashboardResponse response = new DashboardResponse(clientInfos, stats);
+        response.setTotalElements(totalElements);
+        response.setTotalPages(1);
+        response.setPage(1);
+        response.setSize((int) totalElements);
+        return ResponseEntity.ok(response);
     }
 }
