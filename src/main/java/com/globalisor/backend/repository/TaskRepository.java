@@ -22,9 +22,15 @@ public interface TaskRepository extends MongoRepository<Task, String> {
 
     List<Task> findByStatusOrderByCreatedAtDesc(String status);
 
-    List<Task> findByStatusInOrderByCreatedAtDesc(List<String> statuses);
+    List<Task> findByCompanyNameContainingIgnoreCase(String companyName);
 
     long countByStatus(String status);
 
     long countByStatusIn(List<String> statuses);
+
+    long countByStatusIgnoreCase(String status);
+
+    long countByStatusInIgnoreCase(List<String> statuses);
+
+    long countByAssignedToIsNull();
 }

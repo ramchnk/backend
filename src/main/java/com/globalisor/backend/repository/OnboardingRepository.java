@@ -6,5 +6,6 @@ import java.util.Optional;
 
 public interface OnboardingRepository extends MongoRepository<Onboarding, String> {
     Optional<Onboarding> findByClientId(String clientId);
+    java.util.List<Onboarding> findByClientIdIn(java.util.List<String> clientIds);
     java.util.List<Onboarding> findAllByOrderByCreatedAtDesc();
 }

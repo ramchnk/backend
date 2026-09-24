@@ -326,7 +326,7 @@ public class MigratedEndpointsController {
         Kyc saved = kycRepository.save(kyc);
 
         // Also update matching Compliance record to sync statuses
-        Optional<Compliance> compOpt = complianceRepository.findAll().stream().filter(c -> c.getClientId().equals(kyc.getClientId())).findFirst();
+        Optional<Compliance> compOpt = complianceRepository.findByClientId(kyc.getClientId());
         if (compOpt.isPresent()) {
             Compliance comp = compOpt.get();
             comp.setStatus(kyc.getStatus());
@@ -479,7 +479,7 @@ public class MigratedEndpointsController {
         }
 
         // Find or create KYC record
-        Optional<Kyc> kycOpt = kycRepository.findAll().stream().filter(k -> k.getClientId().equals(clientId)).findFirst();
+        Optional<Kyc> kycOpt = kycRepository.findByClientId(clientId);
         Kyc kyc;
         if (kycOpt.isPresent()) {
             kyc = kycOpt.get();
@@ -551,7 +551,7 @@ public class MigratedEndpointsController {
         Kyc savedKyc = kycRepository.save(kyc);
 
         // Auto-sync client's primary Compliance record
-        Optional<Compliance> compOpt = complianceRepository.findAll().stream().filter(c -> c.getClientId().equals(clientId)).findFirst();
+        Optional<Compliance> compOpt = complianceRepository.findByClientId(clientId);
         if (compOpt.isPresent()) {
             Compliance comp = compOpt.get();
             comp.setAmlStatus(kyc.getAmlStatus());
@@ -1320,9 +1320,26 @@ public class MigratedEndpointsController {
     @GetMapping("/applications")
     public ResponseEntity<List<Map<String, Object>>> getAllApplications() {
         List<Requirement> requirements = requirementRepository.findAll();
-        List<User> users = userRepository.findAll();
-        List<Kyc> kycRecords = kycRepository.findAll();
-        List<ClientDocument> documents = clientDocumentRepository.findAll();
+        if (requirements.isEmpty()) {
+            return ResponseEntity.ok(Collections.emptyList());
+        }
+
+        List<String> userIds = requirements.stream()
+                .map(Requirement::getUserId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+
+        List<User> users = userRepository.findAllById(userIds);
+        Map<String, User> userMap = users.stream().collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+
+        List<Kyc> kycRecords = kycRepository.findByClientIdIn(userIds);
+        Map<String, Kyc> kycMap = kycRecords.stream().collect(Collectors.toMap(Kyc::getClientId, k -> k, (a, b) -> a));
+
+        List<ClientDocument> documents = clientDocumentRepository.findByClientIdIn(userIds);
+        Map<String, Long> pendingDocCounts = documents.stream()
+                .filter(d -> "pending".equalsIgnoreCase(d.getStatus()) && d.getClientId() != null)
+                .collect(Collectors.groupingBy(ClientDocument::getClientId, Collectors.counting()));
 
         List<Map<String, Object>> apps = requirements.stream().map(req -> {
             Map<String, Object> map = new HashMap<>();
@@ -1343,9 +1360,10 @@ public class MigratedEndpointsController {
             map.put("business", companyName);
 
             // Find client
-            Optional<User> userOpt = users.stream().filter(u -> u.getId().equals(req.getUserId())).findFirst();
-            map.put("client", userOpt.map(this::formatUserName).orElse("Unknown"));
-            map.put("clientId", req.getUserId());
+            String uId = req.getUserId();
+            User user = uId != null ? userMap.get(uId) : null;
+            map.put("client", user != null ? formatUserName(user) : "Unknown");
+            map.put("clientId", uId);
 
             map.put("staff", "Sarah Lim");
             map.put("status", req.getStatus() != null ? req.getStatus() : "pending");
@@ -1361,13 +1379,11 @@ public class MigratedEndpointsController {
             map.put("deadline", deadline);
 
             // Find KYC status
-            Optional<Kyc> kycOpt = kycRecords.stream().filter(k -> k.getClientId().equals(req.getUserId())).findFirst();
-            map.put("kyc", kycOpt.map(k -> capitalize(k.getStatus())).orElse("Approved"));
+            Kyc kyc = uId != null ? kycMap.get(uId) : null;
+            map.put("kyc", kyc != null ? capitalize(kyc.getStatus()) : "Approved");
 
             // Documents status
-            long pendingDocs = documents.stream()
-                    .filter(d -> d.getClientId().equals(req.getUserId()) && "pending".equalsIgnoreCase(d.getStatus()))
-                    .count();
+            long pendingDocs = uId != null ? pendingDocCounts.getOrDefault(uId, 0L) : 0L;
             map.put("docs", pendingDocs > 0 ? pendingDocs + " Docs Pending" : "All Docs OK");
 
             // Date
@@ -1383,13 +1399,10 @@ public class MigratedEndpointsController {
     // --- REPORT ENDPOINTS ---
     @GetMapping("/reports")
     public ResponseEntity<Map<String, Object>> getReports() {
-        List<Requirement> requirements = requirementRepository.findAll();
-        List<Kyc> kycRecords = kycRepository.findAll();
-
-        long totalApps = requirements.size();
-        long approved = requirements.stream().filter(r -> "approved".equalsIgnoreCase(r.getStatus()) || "completed".equalsIgnoreCase(r.getStatus())).count();
-        long rejected = requirements.stream().filter(r -> "rejected".equalsIgnoreCase(r.getStatus())).count();
-        long pendingKyc = kycRecords.stream().filter(k -> "pending".equalsIgnoreCase(k.getStatus())).count();
+        long totalApps = requirementRepository.count();
+        long approved = requirementRepository.countByStatusIn(Arrays.asList("approved", "completed", "APPROVED", "COMPLETED"));
+        long rejected = requirementRepository.countByStatusIgnoreCase("rejected");
+        long pendingKyc = kycRepository.countByStatusIgnoreCase("pending");
 
         // Revenue = SGD 1,500 per approved/completed incorporation
         long revenue = approved * 1500;
@@ -1553,11 +1566,6 @@ public class MigratedEndpointsController {
             @RequestParam(required = false) String staffName) {
 
         List<User> allUsers = userRepository.findAll();
-        List<ClientDocument> allDocs = clientDocumentRepository.findAll();
-        List<Requirement> allReqs = requirementRepository.findAll();
-        List<Kyc> allKyc = kycRepository.findAll();
-        List<Onboarding> allOnboardings = onboardingRepository.findAll();
-
         List<User> clients = allUsers.stream().filter(u -> {
             String role = u.getRole();
             if (role != null) {
@@ -1586,6 +1594,20 @@ public class MigratedEndpointsController {
             }).collect(Collectors.toList());
         }
 
+        if (clients.isEmpty()) {
+            return ResponseEntity.ok(Collections.emptyList());
+        }
+
+        List<String> clientIds = clients.stream().map(User::getId).filter(Objects::nonNull).collect(Collectors.toList());
+        List<Requirement> reqs = requirementRepository.findByUserIdIn(clientIds);
+        Map<String, Requirement> reqMap = reqs.stream().collect(Collectors.toMap(Requirement::getUserId, r -> r, (a, b) -> a));
+
+        List<Kyc> kycs = kycRepository.findByClientIdIn(clientIds);
+        Map<String, Kyc> kycMap = kycs.stream().collect(Collectors.toMap(Kyc::getClientId, k -> k, (a, b) -> a));
+
+        List<Onboarding> onboardings = onboardingRepository.findByClientIdIn(clientIds);
+        Map<String, Onboarding> obMap = onboardings.stream().collect(Collectors.toMap(Onboarding::getClientId, o -> o, (a, b) -> a));
+
         List<Map<String, Object>> responseList = new ArrayList<>();
         for (User u : clients) {
             Map<String, Object> map = new HashMap<>();
@@ -1608,24 +1630,24 @@ public class MigratedEndpointsController {
             map.put("assignedAt", u.getAssignedAt());
             map.put("assignedBy", u.getAssignedBy());
 
-            // Count documents
-            long docCount = allDocs.stream().filter(d -> userId.equalsIgnoreCase(d.getClientId())).count();
+            // Count documents with indexed count
+            long docCount = clientDocumentRepository.countByClientId(userId);
             map.put("documentCount", docCount);
 
             // Find application status
-            Optional<Requirement> reqOpt = allReqs.stream().filter(r -> userId.equalsIgnoreCase(r.getUserId())).findFirst();
-            map.put("applicationStatus", reqOpt.map(Requirement::getStatus).orElse("Active"));
-            map.put("applicationId", reqOpt.map(r -> r.getId() != null ? r.getId().replace("SRV-", "APP-") : "APP-" + userId).orElse("APP-" + userId));
-            map.put("service", reqOpt.map(r -> r.getData() != null && r.getData().get("serviceName") != null ? r.getData().get("serviceName").toString() : "Corporate Services & Incorporation").orElse("Corporate Services & Incorporation"));
+            Requirement req = reqMap.get(userId);
+            map.put("applicationStatus", req != null && req.getStatus() != null ? req.getStatus() : "Active");
+            map.put("applicationId", req != null && req.getId() != null ? req.getId().replace("SRV-", "APP-") : "APP-" + userId);
+            map.put("service", req != null && req.getData() != null && req.getData().get("serviceName") != null ? req.getData().get("serviceName").toString() : "Corporate Services & Incorporation");
 
             // Find KYC status
-            Optional<Kyc> kycOpt = allKyc.stream().filter(k -> userId.equalsIgnoreCase(k.getClientId())).findFirst();
-            map.put("kycStatus", kycOpt.map(Kyc::getStatus).orElse("VERIFIED"));
+            Kyc kyc = kycMap.get(userId);
+            map.put("kycStatus", kyc != null && kyc.getStatus() != null ? kyc.getStatus() : "VERIFIED");
 
             // Find Onboarding progress
-            Optional<Onboarding> obOpt = allOnboardings.stream().filter(o -> userId.equalsIgnoreCase(o.getClientId())).findFirst();
-            map.put("onboardingProgress", obOpt.map(Onboarding::getProgressPercent).orElse(100));
-            map.put("onboardingStatus", obOpt.map(Onboarding::getStatus).orElse("approved"));
+            Onboarding ob = obMap.get(userId);
+            map.put("onboardingProgress", ob != null ? ob.getProgressPercent() : 100);
+            map.put("onboardingStatus", ob != null && ob.getStatus() != null ? ob.getStatus() : "approved");
 
             responseList.add(map);
         }
@@ -1664,7 +1686,7 @@ public class MigratedEndpointsController {
         map.put("documents", docs);
 
         // Get application
-        Optional<Requirement> reqOpt = requirementRepository.findAll().stream().filter(r -> id.equalsIgnoreCase(r.getUserId())).findFirst();
+        Optional<Requirement> reqOpt = requirementRepository.findByUserId(id);
         map.put("application", reqOpt.orElse(null));
 
         // Get KYC

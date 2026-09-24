@@ -5,6 +5,7 @@ import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface ClientDocumentRepository extends MongoRepository<ClientDocument, String> {
@@ -14,4 +15,10 @@ public interface ClientDocumentRepository extends MongoRepository<ClientDocument
     List<ClientDocument> findByClientIdAndSuggestedModule(String clientId, String suggestedModule);
     List<ClientDocument> findByCompanyName(String companyName);
     List<ClientDocument> findByCompanyNameIgnoreCase(String companyName);
+    List<ClientDocument> findByClientIdIn(List<String> clientIds);
+    List<ClientDocument> findByCategoryIgnoreCase(String category);
+    List<ClientDocument> findBySubFolderIgnoreCase(String subFolder);
+    Optional<ClientDocument> findFirstByTitleIgnoreCase(String title);
+    long countByClientId(String clientId);
+    long countByClientIdAndStatusIgnoreCase(String clientId, String status);
 }

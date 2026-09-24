@@ -9,6 +9,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -43,16 +44,15 @@ public class MigrationController {
 
     @GetMapping("/stats")
     public ResponseEntity<?> getStats() {
-        long totalClients = userRepository.findAll().stream()
-                .filter(u -> u.getRole() == null || (!u.getRole().equalsIgnoreCase("ADMIN") && !u.getRole().equalsIgnoreCase("STAFF")))
-                .count();
+        long totalClients = userRepository.countByRoleIgnoreCase("CLIENT");
+        if (totalClients == 0) {
+            long staffAndAdmin = userRepository.countByRoleIn(List.of("ADMIN", "STAFF", "admin", "staff"));
+            totalClients = Math.max(0, userRepository.count() - staffAndAdmin);
+        }
 
-        // Calculate imported today (simulate count of users created today)
-        long importedToday = migrationJobRepository.findAll().stream()
-                .filter(job -> {
-                    LocalDate jobDate = LocalDate.ofEpochDay(job.getCreatedAt() / (24 * 60 * 60 * 1000));
-                    return jobDate.equals(LocalDate.now());
-                })
+        // Calculate imported today with timestamp query
+        long startOfDayMillis = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();
+        long importedToday = migrationJobRepository.findByCreatedAtGreaterThanEqual(startOfDayMillis).stream()
                 .mapToLong(MigrationJob::getSuccessCount)
                 .sum();
 

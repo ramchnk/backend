@@ -408,25 +408,12 @@ public class DocumentMigrationController {
                     }
 
                     // Reassign documents in MongoDB that have old subFolder
-                    List<ClientDocument> docs = clientDocumentRepository.findAll();
+                    List<ClientDocument> docs = clientDocumentRepository.findBySubFolderIgnoreCase(oldKey);
                     int updatedCount = 0;
                     for (ClientDocument doc : docs) {
-                        if (doc.getSubFolder() != null) {
-                            if (doc.getSubFolder().equalsIgnoreCase(oldKey)) {
-                                doc.setSubFolder(newKey);
-                                clientDocumentRepository.save(doc);
-                                updatedCount++;
-                            } else if (doc.getSubFolder().startsWith(oldKey + "/")) {
-                                doc.setSubFolder(newKey + doc.getSubFolder().substring(oldKey.length()));
-                                clientDocumentRepository.save(doc);
-                                updatedCount++;
-                            } else if (doc.getSubFolder().endsWith("/" + oldKey)) {
-                                int lastSlash = doc.getSubFolder().lastIndexOf("/");
-                                doc.setSubFolder(doc.getSubFolder().substring(0, lastSlash + 1) + newKey);
-                                clientDocumentRepository.save(doc);
-                                updatedCount++;
-                            }
-                        }
+                        doc.setSubFolder(newKey);
+                        clientDocumentRepository.save(doc);
+                        updatedCount++;
                     }
                     log.info("Updated sub-folder from '{}' to '{}' on {} documents", oldKey, newKey, updatedCount);
                 } else {
@@ -446,14 +433,12 @@ public class DocumentMigrationController {
                     }
 
                     // Reassign any documents in MongoDB that have old category key
-                    List<ClientDocument> docs = clientDocumentRepository.findAll();
+                    List<ClientDocument> docs = clientDocumentRepository.findByCategoryIgnoreCase(oldKey);
                     int updatedCount = 0;
                     for (ClientDocument doc : docs) {
-                        if (doc.getCategory() != null && doc.getCategory().equalsIgnoreCase(oldKey)) {
-                            doc.setCategory(newKey);
-                            clientDocumentRepository.save(doc);
-                            updatedCount++;
-                        }
+                        doc.setCategory(newKey);
+                        clientDocumentRepository.save(doc);
+                        updatedCount++;
                     }
                     log.info("Updated category from '{}' to '{}' on {} documents", oldKey, newKey, updatedCount);
                 }
@@ -506,15 +491,7 @@ public class DocumentMigrationController {
                 }
 
                 // Permanently delete all documents inside this subfolder and any nested children
-                List<ClientDocument> docs = clientDocumentRepository.findAll();
-                List<ClientDocument> docsToDelete = new ArrayList<>();
-                for (ClientDocument doc : docs) {
-                    if (doc.getSubFolder() != null && (doc.getSubFolder().equalsIgnoreCase(catKey)
-                            || doc.getSubFolder().toLowerCase().startsWith(catKey.toLowerCase() + "/")
-                            || doc.getSubFolder().toLowerCase().endsWith("/" + catKey.toLowerCase()))) {
-                        docsToDelete.add(doc);
-                    }
-                }
+                List<ClientDocument> docsToDelete = clientDocumentRepository.findBySubFolderIgnoreCase(catKey);
 
                 for (ClientDocument doc : docsToDelete) {
                     if (doc.getGcsBlobName() != null && !doc.getGcsBlobName().isEmpty()) {
@@ -554,12 +531,9 @@ public class DocumentMigrationController {
                 }
 
                 // Permanently delete all documents matching this category or its subcategories
-                List<ClientDocument> docs = clientDocumentRepository.findAll();
                 List<ClientDocument> docsToDelete = new ArrayList<>();
-                for (ClientDocument doc : docs) {
-                    if (doc.getCategory() != null && categoryKeysToDelete.contains(doc.getCategory().toLowerCase())) {
-                        docsToDelete.add(doc);
-                    }
+                for (String k : categoryKeysToDelete) {
+                    docsToDelete.addAll(clientDocumentRepository.findByCategoryIgnoreCase(k));
                 }
 
                 for (ClientDocument doc : docsToDelete) {
@@ -622,8 +596,7 @@ public class DocumentMigrationController {
         try {
             Optional<ClientDocument> optional = clientDocumentRepository.findById(id);
             if (optional.isEmpty()) {
-                List<ClientDocument> all = clientDocumentRepository.findAll();
-                optional = all.stream().filter(d -> id.equalsIgnoreCase(d.getId()) || id.equalsIgnoreCase(d.getTitle()) || (d.getTitle() != null && d.getTitle().equalsIgnoreCase(id))).findFirst();
+                optional = clientDocumentRepository.findFirstByTitleIgnoreCase(id);
             }
 
             if (optional.isEmpty()) {
@@ -677,14 +650,14 @@ public class DocumentMigrationController {
 
         if (docs == null || docs.isEmpty()) {
             String cleanId = clientId != null ? clientId.replace("C-", "") : "";
-            List<ClientDocument> all = clientDocumentRepository.findAll();
-            docs = new ArrayList<>();
-            for (ClientDocument d : all) {
-                if (d.getClientId() != null && !cleanId.isEmpty() && (d.getClientId().equalsIgnoreCase(cleanId) || d.getClientId().equalsIgnoreCase(clientId))) {
-                    docs.add(d);
-                } else if (companyName != null && !companyName.trim().isEmpty() && d.getCompanyName() != null && d.getCompanyName().equalsIgnoreCase(companyName.trim())) {
-                    docs.add(d);
-                }
+            if (!cleanId.isEmpty() && !cleanId.equalsIgnoreCase(clientId)) {
+                docs = clientDocumentRepository.findByClientId(cleanId);
+            }
+            if ((docs == null || docs.isEmpty()) && companyName != null && !companyName.trim().isEmpty()) {
+                docs = clientDocumentRepository.findByCompanyNameIgnoreCase(companyName.trim());
+            }
+            if (docs == null) {
+                docs = new ArrayList<>();
             }
         }
 
@@ -732,8 +705,7 @@ public class DocumentMigrationController {
         try {
             Optional<ClientDocument> optional = clientDocumentRepository.findById(id);
             if (optional.isEmpty()) {
-                List<ClientDocument> all = clientDocumentRepository.findAll();
-                optional = all.stream().filter(d -> id.equalsIgnoreCase(d.getId()) || id.equalsIgnoreCase(d.getTitle())).findFirst();
+                optional = clientDocumentRepository.findFirstByTitleIgnoreCase(id);
             }
 
             if (optional.isEmpty()) {
@@ -1001,26 +973,26 @@ public class DocumentMigrationController {
         }
     }
 
-    // View PDF Inline
+    // View PDF Inline (Streaming to avoid heap allocation)
     @GetMapping("/{id}/view")
-    public ResponseEntity<byte[]> viewDocument(@PathVariable("id") String id) {
+    public ResponseEntity<?> viewDocument(@PathVariable("id") String id) {
         Optional<ClientDocument> optional = clientDocumentRepository.findById(id);
         if (optional.isEmpty()) {
-            List<ClientDocument> all = clientDocumentRepository.findAll();
-            optional = all.stream().filter(d -> id.equalsIgnoreCase(d.getId()) || id.equalsIgnoreCase(d.getTitle()) || (d.getTitle() != null && d.getTitle().toLowerCase().contains(id.toLowerCase()))).findFirst();
+            optional = clientDocumentRepository.findFirstByTitleIgnoreCase(id);
         }
 
         if (optional.isPresent()) {
             ClientDocument doc = optional.get();
             if (doc.getGcsBlobName() != null && gcpStorageService.isInitialized()) {
                 try {
-                    byte[] bytes = gcpStorageService.downloadFile(doc.getGcsBlobName());
+                    java.io.InputStream is = gcpStorageService.getDownloadInputStream(doc.getGcsBlobName());
+                    org.springframework.core.io.InputStreamResource resource = new org.springframework.core.io.InputStreamResource(is);
                     HttpHeaders headers = new HttpHeaders();
                     headers.setContentType(MediaType.APPLICATION_PDF);
                     headers.setContentDisposition(org.springframework.http.ContentDisposition.inline().filename(doc.getTitle() != null ? doc.getTitle() : "document.pdf").build());
-                    return new ResponseEntity<>(bytes, headers, HttpStatus.OK);
+                    return ResponseEntity.ok().headers(headers).body(resource);
                 } catch (Exception e) {
-                    log.warn("Could not download blob from GCS for doc {}: {}", id, e.getMessage());
+                    log.warn("Could not stream blob from GCS for doc {}: {}", id, e.getMessage());
                 }
             }
         }

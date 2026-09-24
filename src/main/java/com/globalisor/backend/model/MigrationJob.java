@@ -3,6 +3,7 @@ package com.globalisor.backend.model;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 import java.util.List;
 import java.util.ArrayList;
@@ -22,6 +23,7 @@ public class MigrationJob {
     private int failedCount = 0;
     private int duplicateCount = 0;
     private double avgOcrConfidence = 0.98;
+    @Indexed
     private Long createdAt = System.currentTimeMillis();
     private List<String> logs = new ArrayList<>();
     private List<Map<String, Object>> records = new ArrayList<>();

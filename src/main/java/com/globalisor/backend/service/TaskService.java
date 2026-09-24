@@ -131,16 +131,12 @@ public class TaskService {
             taskRepository.saveAll(List.of(t1, t2, t3));
         } else {
             // Sanitize any existing tasks with placeholder LionPath company name to Abbey Holdings
-            List<Task> allTasks = taskRepository.findAll();
-            boolean changed = false;
-            for (Task t : allTasks) {
-                if (t.getCompanyName() != null && t.getCompanyName().contains("LionPath")) {
+            List<Task> lionTasks = taskRepository.findByCompanyNameContainingIgnoreCase("LionPath");
+            if (!lionTasks.isEmpty()) {
+                for (Task t : lionTasks) {
                     t.setCompanyName("ABBEY HOLDINGS PTE LTD");
-                    changed = true;
                 }
-            }
-            if (changed) {
-                taskRepository.saveAll(allTasks);
+                taskRepository.saveAll(lionTasks);
             }
         }
     }
@@ -529,15 +525,14 @@ public class TaskService {
     }
 
     public Map<String, Object> getTaskStats() {
-        List<Task> all = taskRepository.findAll();
-        long total = all.size();
-        long pending = all.stream().filter(t -> "PENDING".equalsIgnoreCase(t.getStatus())).count();
-        long assigned = all.stream().filter(t -> "ASSIGNED".equalsIgnoreCase(t.getStatus())).count();
-        long inProgress = all.stream().filter(t -> "IN_PROGRESS".equalsIgnoreCase(t.getStatus())).count();
-        long waitingClient = all.stream().filter(t -> "WAITING_CLIENT_INPUT".equalsIgnoreCase(t.getStatus())).count();
-        long completed = all.stream().filter(t -> "COMPLETED".equalsIgnoreCase(t.getStatus()) || "RESOLVED".equalsIgnoreCase(t.getStatus())).count();
-        long urgent = all.stream().filter(t -> "URGENT".equalsIgnoreCase(t.getPriority()) && !"COMPLETED".equalsIgnoreCase(t.getStatus())).count();
-        long unassigned = all.stream().filter(t -> t.getAssignedTo() == null || t.getAssignedTo().getId() == null).count();
+        long total = taskRepository.count();
+        long pending = taskRepository.countByStatusIgnoreCase("PENDING");
+        long assigned = taskRepository.countByStatusIgnoreCase("ASSIGNED");
+        long inProgress = taskRepository.countByStatusIgnoreCase("IN_PROGRESS");
+        long waitingClient = taskRepository.countByStatusIgnoreCase("WAITING_CLIENT_INPUT");
+        long completed = taskRepository.countByStatusInIgnoreCase(List.of("COMPLETED", "RESOLVED"));
+        long urgent = taskRepository.countByStatusIgnoreCase("URGENT");
+        long unassigned = taskRepository.countByAssignedToIsNull();
 
         Map<String, Object> stats = new HashMap<>();
         stats.put("total", total);
@@ -634,8 +629,7 @@ public class TaskService {
         List<Map<String, Object>> assignees = new ArrayList<>();
         if (userRepository != null) {
             try {
-                userRepository.findAll().stream()
-                        .filter(u -> "STAFF".equalsIgnoreCase(u.getRole()) || "ADMIN".equalsIgnoreCase(u.getRole()))
+                userRepository.findByRoleIn(List.of("STAFF", "ADMIN", "staff", "admin"))
                         .forEach(u -> {
                             String name = ((u.getFirstName() != null ? u.getFirstName() : "") + " " + (u.getLastName() != null ? u.getLastName() : "")).trim();
                             if (name.isEmpty()) {

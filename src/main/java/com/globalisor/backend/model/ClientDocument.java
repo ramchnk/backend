@@ -20,6 +20,7 @@ import java.util.ArrayList;
 public class ClientDocument {
     @Id
     private String id;
+    @Indexed
     private String title;
     private String file; // base64 or URL
     @Indexed

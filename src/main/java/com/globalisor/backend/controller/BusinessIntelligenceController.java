@@ -294,18 +294,11 @@ public class BusinessIntelligenceController {
         String effectiveCompanyHint = (company != null && !company.trim().isEmpty()) ? company.trim() : thread.getActiveCompany();
 
         String q = query.toLowerCase().trim();
-        List<ClientDocument> allDocs = clientDocumentRepository.findAll();
+        long totalDocsCount = clientDocumentRepository.count();
+        long totalClientsCount = userRepository.countByRoleIgnoreCase("CLIENT");
+        long totalReqsCount = requirementRepository.count();
 
-        List<User> users = userRepository.findAll().stream()
-                .filter(u -> {
-                    String role = u.getRole();
-                    if (role == null) return true;
-                    String trimmedRole = role.trim();
-                    return !trimmedRole.equalsIgnoreCase("ADMIN") && !trimmedRole.equalsIgnoreCase("STAFF");
-                })
-                .collect(Collectors.toList());
-
-        List<Requirement> requirements = requirementRepository.findAll();
+        List<Requirement> requirements = requirementRepository.findAll(org.springframework.data.domain.PageRequest.of(0, 50)).getContent();
 
         Requirement match = findMatchingRequirement(requirements, q, effectiveCompanyHint);
         Map<String, Object> data = match != null ? match.getData() : null;
@@ -839,9 +832,9 @@ public class BusinessIntelligenceController {
         else if (q.contains("total") || q.contains("how many") || q.contains("count") || q.contains("client in system") || q.contains("documents uploaded")) {
             StringBuilder sb = new StringBuilder();
             sb.append("📊 **Globalisor Platform Analytics**\n\n");
-            sb.append("• **Total Active Clients:** `").append(users.size() > 0 ? users.size() : 102).append(" Registered Entities`\n");
-            sb.append("• **Active Requirements / Services:** `").append(requirements.size() > 0 ? requirements.size() : 102).append(" Profiles`\n");
-            sb.append("• **Migrated Documents in Vault:** `").append(allDocs.size()).append(" Documents`\n");
+            sb.append("• **Total Active Clients:** `").append(totalClientsCount > 0 ? totalClientsCount : 102).append(" Registered Entities`\n");
+            sb.append("• **Active Requirements / Services:** `").append(totalReqsCount > 0 ? totalReqsCount : 102).append(" Profiles`\n");
+            sb.append("• **Migrated Documents in Vault:** `").append(totalDocsCount).append(" Documents`\n");
             sb.append("• **Current Active Entity:** `").append(compName).append("` (`").append(uen).append("`)\n");
 
             replyText = sb.toString();
@@ -933,7 +926,7 @@ public class BusinessIntelligenceController {
     public ResponseEntity<?> getDocumentData(@PathVariable("docId") String docId) {
         NomineeAppointmentDocumentData doc = documentGenerationService.getDocumentData(docId);
         if (doc == null) {
-            Requirement req = requirementRepository.findAll().stream().findFirst().orElse(null);
+            Requirement req = requirementRepository.findAll(org.springframework.data.domain.PageRequest.of(0, 1)).getContent().stream().findFirst().orElse(null);
             doc = documentGenerationService.createDocumentDataFromRequirement(req, "default");
             doc.setId(docId);
         }
@@ -957,7 +950,7 @@ public class BusinessIntelligenceController {
         try {
             NomineeAppointmentDocumentData doc = documentGenerationService.getDocumentData(docId);
             if (doc == null) {
-                Requirement req = requirementRepository.findAll().stream().findFirst().orElse(null);
+                Requirement req = requirementRepository.findAll(org.springframework.data.domain.PageRequest.of(0, 1)).getContent().stream().findFirst().orElse(null);
                 doc = documentGenerationService.createDocumentDataFromRequirement(req, "default", type != null ? type : "nominee_director");
                 doc.setId(docId);
             } else if (type != null && !type.isEmpty()) {
@@ -996,7 +989,7 @@ public class BusinessIntelligenceController {
         String officeHours = payload.get("officeHours") != null ? payload.get("officeHours").toString() : "No change";
         String addressProofDoc = payload.get("addressProofDoc") != null ? payload.get("addressProofDoc").toString() : "Attached Document";
 
-        List<Requirement> reqs = requirementRepository.findAll();
+        List<Requirement> reqs = requirementRepository.findAll(org.springframework.data.domain.PageRequest.of(0, 50)).getContent();
         Requirement match = findMatchingRequirement(reqs, companyName, companyName);
 
         NomineeAppointmentDocumentData docData = documentGenerationService.createDocumentDataFromRequirement(match, "change_of_address", "change_of_address");

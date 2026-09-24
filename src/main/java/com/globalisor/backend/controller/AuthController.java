@@ -56,12 +56,9 @@ public class AuthController {
         String inputLogin = loginRequest.getEmail() != null ? loginRequest.getEmail().trim() : "";
         String rawPassword = loginRequest.getPassword() != null ? loginRequest.getPassword().trim() : "";
 
-        // Find user by Email or Client ID
-        User user = userRepository.findAll().stream()
-                .filter(u -> (u.getEmail() != null && u.getEmail().equalsIgnoreCase(inputLogin)) ||
-                             (u.getId() != null && u.getId().equalsIgnoreCase(inputLogin)))
-                .findFirst()
-                .orElse(null);
+        // Find user by Email or Client ID directly from MongoDB
+        User user = userRepository.findByEmailIgnoreCase(inputLogin)
+                .orElseGet(() -> userRepository.findById(inputLogin).orElse(null));
 
         if (user == null) {
             // Auto-provision if valid email structure

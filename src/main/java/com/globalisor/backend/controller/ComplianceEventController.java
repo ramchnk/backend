@@ -48,9 +48,7 @@ public class ComplianceEventController {
 
     @GetMapping("/client/{clientId}")
     public ResponseEntity<List<ComplianceEvent>> getEventsByClient(@PathVariable String clientId) {
-        List<ComplianceEvent> list = complianceEventRepository.findAll().stream()
-                .filter(e -> (e.getClientId() == null || "all".equalsIgnoreCase(e.getClientId()) || clientId.equalsIgnoreCase(e.getClientId())) && Boolean.TRUE.equals(e.getPublished()))
-                .collect(Collectors.toList());
+        List<ComplianceEvent> list = complianceEventRepository.findPublishedForClient(clientId);
 
         list.sort((a, b) -> {
             String d1 = a.getDueDate() != null ? a.getDueDate() : "";

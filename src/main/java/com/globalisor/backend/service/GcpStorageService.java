@@ -180,6 +180,22 @@ public class GcpStorageService {
         }
     }
 
+    public InputStream getDownloadInputStream(String blobName) {
+        if (!isInitialized()) {
+            throw new IllegalStateException("GCP Storage service is not configured with valid credentials.");
+        }
+        try {
+            Blob blob = storage.get(BlobId.of(bucketName, blobName));
+            if (blob == null || !blob.exists()) {
+                throw new IllegalArgumentException("File not found in GCP Bucket: " + blobName);
+            }
+            return java.nio.channels.Channels.newInputStream(blob.reader());
+        } catch (Exception e) {
+            log.error("Error opening stream for blob {}: {}", blobName, e.getMessage(), e);
+            throw new RuntimeException("GCP Download stream failed: " + e.getMessage(), e);
+        }
+    }
+
     public byte[] downloadFile(String blobName) {
         if (!isInitialized()) {
             throw new IllegalStateException("GCP Storage service is not configured with valid credentials.");
