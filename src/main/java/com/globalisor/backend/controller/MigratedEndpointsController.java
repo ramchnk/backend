@@ -1,6 +1,14 @@
 package com.globalisor.backend.controller;
 
 import com.globalisor.backend.model.*;
+import com.globalisor.backend.model.Country;
+import com.globalisor.backend.model.User;
+import com.globalisor.backend.model.Requirement;
+import com.globalisor.backend.model.Kyc;
+import com.globalisor.backend.model.Compliance;
+import com.globalisor.backend.model.Blog;
+import com.globalisor.backend.model.ClientDocument;
+import com.globalisor.backend.model.StaticContent;
 import com.globalisor.backend.repository.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -241,6 +249,13 @@ public class MigratedEndpointsController {
     @GetMapping("/kyc")
     public ResponseEntity<List<Map<String, Object>>> getAllKyc() {
         List<Kyc> kycList = kycRepository.findAll();
+        Set<String> clientIds = kycList.stream()
+                .map(Kyc::getClientId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<String, User> userMap = userRepository.findAllById(clientIds).stream()
+                .collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+
         List<Map<String, Object>> response = kycList.stream().map(k -> {
             Map<String, Object> map = new HashMap<>();
             map.put("id", k.getId());
@@ -263,9 +278,9 @@ public class MigratedEndpointsController {
             map.put("shuftiRef", k.getShuftiRef() != null ? k.getShuftiRef() : "");
             map.put("auditLogs", k.getAuditLogs() != null ? k.getAuditLogs() : new ArrayList<String>());
 
-            Optional<User> userOpt = userRepository.findById(k.getClientId());
-            if (userOpt.isPresent()) {
-                map.put("clientName", formatUserName(userOpt.get()));
+            User user = k.getClientId() != null ? userMap.get(k.getClientId()) : null;
+            if (user != null) {
+                map.put("clientName", formatUserName(user));
             } else {
                 map.put("clientName", "Unknown");
             }
@@ -364,6 +379,13 @@ public class MigratedEndpointsController {
     @GetMapping("/compliance")
     public ResponseEntity<List<Map<String, Object>>> getAllCompliance() {
         List<Compliance> list = complianceRepository.findAll();
+        Set<String> clientIds = list.stream()
+                .map(Compliance::getClientId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<String, User> userMap = userRepository.findAllById(clientIds).stream()
+                .collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+
         List<Map<String, Object>> response = list.stream().map(c -> {
             Map<String, Object> map = new HashMap<>();
             map.put("id", c.getId());
@@ -389,9 +411,9 @@ public class MigratedEndpointsController {
             map.put("overrideAt", c.getOverrideAt() != null ? c.getOverrideAt() : 0L);
             map.put("auditLogs", c.getAuditLogs() != null ? c.getAuditLogs() : new ArrayList<String>());
 
-            Optional<User> userOpt = userRepository.findById(c.getClientId());
-            if (userOpt.isPresent()) {
-                map.put("clientName", formatUserName(userOpt.get()));
+            User user = c.getClientId() != null ? userMap.get(c.getClientId()) : null;
+            if (user != null) {
+                map.put("clientName", formatUserName(user));
             } else {
                 map.put("clientName", "Unknown");
             }
@@ -617,6 +639,20 @@ public class MigratedEndpointsController {
         }
         List<Requirement> requirements = requirementRepository.findAll();
 
+        Set<String> clientIds = documents.stream()
+                .map(ClientDocument::getClientId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<String, User> userMap = userRepository.findAllById(clientIds).stream()
+                .collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+
+        Map<String, Requirement> reqMap = new HashMap<>();
+        for (Requirement r : requirements) {
+            if (r.getUserId() != null && !reqMap.containsKey(r.getUserId().toLowerCase())) {
+                reqMap.put(r.getUserId().toLowerCase(), r);
+            }
+        }
+
         List<Map<String, Object>> response = documents.stream().map(d -> {
             Map<String, Object> map = new HashMap<>();
             map.put("id", d.getId());
@@ -626,11 +662,11 @@ public class MigratedEndpointsController {
             map.put("clientId", d.getClientId());
             map.put("date", d.getDate());
 
-            Optional<User> userOpt = userRepository.findById(d.getClientId() != null ? d.getClientId() : "");
+            User user = d.getClientId() != null ? userMap.get(d.getClientId()) : null;
             String clientName = d.getClientName();
             if (clientName == null || clientName.isEmpty()) {
-                if (userOpt.isPresent()) {
-                    clientName = formatUserName(userOpt.get());
+                if (user != null) {
+                    clientName = formatUserName(user);
                 } else {
                     clientName = "Unknown";
                 }
@@ -638,14 +674,13 @@ public class MigratedEndpointsController {
             map.put("clientName", clientName);
             map.put("client", clientName + " - " + (d.getClientId() != null ? d.getClientId().replace("C-", "APP-") : ""));
 
-            Optional<Requirement> reqOpt = requirements.stream()
-                    .filter(r -> r.getUserId() != null && r.getUserId().equalsIgnoreCase(d.getClientId()))
-                    .findFirst();
+            String reqKey = d.getClientId() != null ? d.getClientId().toLowerCase() : "";
+            Requirement req = reqMap.get(reqKey);
 
             String companyName = d.getCompanyName();
             if (companyName == null || companyName.isEmpty()) {
-                if (reqOpt.isPresent()) {
-                    Map<String, Object> data = reqOpt.get().getData();
+                if (req != null) {
+                    Map<String, Object> data = req.getData();
                     if (data != null && data.containsKey("names")) {
                         Object namesObj = data.get("names");
                         if (namesObj instanceof List && !((List<?>) namesObj).isEmpty()) {
@@ -655,8 +690,8 @@ public class MigratedEndpointsController {
                 }
             }
             if (companyName == null || companyName.isEmpty()) {
-                if (userOpt.isPresent() && userOpt.get().getCompanyName() != null && !userOpt.get().getCompanyName().isEmpty()) {
-                    companyName = userOpt.get().getCompanyName();
+                if (user != null && user.getCompanyName() != null && !user.getCompanyName().isEmpty()) {
+                    companyName = user.getCompanyName();
                 } else {
                     companyName = "Globalisor Entity";
                 }
@@ -666,7 +701,7 @@ public class MigratedEndpointsController {
 
             String appId = d.getApplicationId();
             if (appId == null || appId.isEmpty()) {
-                appId = reqOpt.isPresent() ? (reqOpt.get().getId() != null ? reqOpt.get().getId().replace("SRV-", "APP-") : "APP-unknown") : "N/A";
+                appId = req != null ? (req.getId() != null ? req.getId().replace("SRV-", "APP-") : "APP-unknown") : "N/A";
             }
             map.put("applicationId", appId);
 
@@ -1274,7 +1309,7 @@ public class MigratedEndpointsController {
                 res.put("lastSeen", null);
             }
         } else if (role != null && !role.isEmpty()) {
-            List<User> users = userRepository.findAll();
+            List<User> users = userRepository.findByRoleIn(List.of("ADMIN", "STAFF", "admin", "staff"));
             boolean anyOnline = false;
             Long latestLastSeen = null;
 
@@ -1344,8 +1379,10 @@ public class MigratedEndpointsController {
         List<Map<String, Object>> apps = requirements.stream().map(req -> {
             Map<String, Object> map = new HashMap<>();
             
-            // Map ID: e.g. "SRV-1001"
-            map.put("id", req.getId() != null ? req.getId().replace("SRV-", "APP-") : "APP-unknown");
+            // Map ID: e.g. "SRV-1001" or ObjectId
+            map.put("id", req.getId());
+            map.put("rawId", req.getId());
+            map.put("data", req.getData());
 
             // Extract company name
             String companyName = "N/A";
@@ -1365,7 +1402,10 @@ public class MigratedEndpointsController {
             map.put("client", user != null ? formatUserName(user) : "Unknown");
             map.put("clientId", uId);
 
-            map.put("staff", "Sarah Lim");
+            String staffAssigned = req.getAssignedStaffName() != null && !req.getAssignedStaffName().isEmpty() 
+                    ? req.getAssignedStaffName() 
+                    : (req.getStaff() != null && !req.getStaff().isEmpty() ? req.getStaff() : "Unassigned");
+            map.put("staff", staffAssigned);
             map.put("status", req.getStatus() != null ? req.getStatus() : "pending");
             
             // Priority & Deadline
@@ -1573,6 +1613,9 @@ public class MigratedEndpointsController {
                 if (tr.equalsIgnoreCase("ADMIN") || tr.equalsIgnoreCase("STAFF")) {
                     return false;
                 }
+            }
+            if ("PENDING_APPROVAL".equalsIgnoreCase(u.getStatus())) {
+                return false;
             }
             return true;
         }).collect(Collectors.toList());

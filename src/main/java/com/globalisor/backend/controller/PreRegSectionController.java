@@ -147,7 +147,7 @@ public class PreRegSectionController {
         List<PreRegSection> locals = preRegSectionRepository.findByJourneyType("LOCAL");
         if (locals.isEmpty()) {
             List<PreRegSection> defaults = new ArrayList<>();
-            // 1. SSIC & Industry Name
+            // 1. Company Details
             List<Map<String, Object>> nameFields = List.of(
                 createField("names[0]", "Proposed Name Option 1", "text", true, "Primary preferred name", null),
                 createField("names[1]", "Proposed Name Option 2", "text", true, "Backup name if Option 1 is unavailable", null),
@@ -156,7 +156,7 @@ public class PreRegSectionController {
                 createField("activities.secondary", "Secondary Business Activity (SSIC Code)", "ssic-single", false, "Search by SSIC code or activity name", null),
                 createField("names[3]", "Proposed Name Option 4", "text", false, "", null)
             );
-            defaults.add(new PreRegSection("sec-names", "names", "SSIC & Industry Name", "Proposed names and activities for ACRA verification", "form", 1, nameFields, "LOCAL"));
+            defaults.add(new PreRegSection("sec-names", "names", "Company Details", "Proposed names and activities for ACRA verification", "form", 1, nameFields, "LOCAL"));
 
             // 2. Directors & Shareholders
             List<Map<String, Object>> directorFields = List.of(
@@ -205,7 +205,7 @@ public class PreRegSectionController {
         List<PreRegSection> foreigners = preRegSectionRepository.findByJourneyType("FOREIGNER");
         if (foreigners.isEmpty()) {
             List<PreRegSection> defaults = new ArrayList<>();
-            // 1. SSIC & Industry Name
+            // 1. Company Details
             List<Map<String, Object>> nameFields = List.of(
                 createField("names[0]", "Proposed Name Option 1", "text", true, "Primary preferred name", null),
                 createField("names[1]", "Proposed Name Option 2", "text", true, "Backup name if Option 1 is unavailable", null),
@@ -214,7 +214,7 @@ public class PreRegSectionController {
                 createField("activities.secondary", "Secondary Business Activity (SSIC Code)", "ssic-single", false, "Search by SSIC code or activity name", null),
                 createField("names[3]", "Proposed Name Option 4", "text", false, "", null)
             );
-            defaults.add(new PreRegSection("sec-names-foreigner", "names", "SSIC & Industry Name", "Proposed names and activities for ACRA verification", "form", 1, nameFields, "FOREIGNER"));
+            defaults.add(new PreRegSection("sec-names-foreigner", "names", "Company Details", "Proposed names and activities for ACRA verification", "form", 1, nameFields, "FOREIGNER"));
 
             // 2. Directors & Shareholders
             List<Map<String, Object>> directorFields = List.of(

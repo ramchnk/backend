@@ -285,6 +285,7 @@ public class RequirementController {
             
             clientUser = new User(firstName, lastName, email, encodedPassword);
             clientUser.setRole("CLIENT");
+            clientUser.setStatus("PENDING_APPROVAL");
             clientUser.setPlainPassword(rawPassword);
             userRepository.save(clientUser);
             

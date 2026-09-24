@@ -21,6 +21,12 @@ public class Requirement {
     @Indexed
     private String status = "pending";
     private String staff = "Unassigned";
+    @Indexed
+    private String assignedStaffId;
+    private String assignedStaffName;
+    private String reviewedBy;
+    private Date reviewedAt;
+    private String rejectionReason;
     private Date createdAt = new Date();
     private Date updatedAt = new Date();
     private Map<String, Map<String, Object>> sectionStatuses = new HashMap<>();

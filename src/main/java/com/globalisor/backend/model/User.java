@@ -19,6 +19,8 @@ public class User {
     private String password;
     @Indexed
     private String role = "USER";
+    @Indexed
+    private String status = "ACTIVE";
     private String plainPassword;
     private Long lastSeenTime;
     @Indexed

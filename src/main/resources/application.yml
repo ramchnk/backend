@@ -14,7 +14,12 @@ spring:
 
 server:
   port: ${PORT:8080}
+  compression:
+    enabled: true
+    mime-types: text/html,text/xml,text/plain,text/css,text/javascript,application/javascript,application/json
+    min-response-size: 1024
   tomcat:
+    connection-timeout: 60000
     threads:
       max: 25
       min-spare: 5
@@ -23,8 +28,14 @@ server:
 
 logging:
   level:
-    org.springframework.web: INFO
-    org.springframework.web.servlet: INFO
+    root: INFO
+    org.springframework.web: WARN
+    org.springframework.web.servlet: WARN
+    org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver: ERROR
+    org.springframework.web.servlet.mvc.support.DefaultHandlerExceptionResolver: ERROR
+    org.apache.catalina: WARN
+    org.apache.coyote: WARN
+    org.apache.tomcat: WARN
     com.globalisor.backend: INFO
 
 globalisor:

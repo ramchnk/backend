@@ -30,6 +30,7 @@ import com.globalisor.backend.repository.StarredMessageRepository;
 import com.globalisor.backend.repository.InvoiceRepository;
 import com.globalisor.backend.repository.CallHistoryRepository;
 
+import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -37,6 +38,9 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api")
 public class AdminController {
+
+    @Autowired
+    private com.globalisor.backend.service.TaskService taskService;
 
     @Autowired
     UserRepository userRepository;
@@ -543,6 +547,280 @@ public class AdminController {
         return ResponseEntity.ok(saved);
     }
 
+    @GetMapping("/admin/applications/pending")
+    public ResponseEntity<?> getPendingApplications() {
+        List<Requirement> requirements = requirementRepository.findAll();
+        List<Requirement> pendingReqs = requirements.stream()
+                .filter(r -> {
+                    String s = r.getStatus() != null ? r.getStatus().toLowerCase() : "";
+                    return s.contains("review") || s.contains("pending") || s.contains("submitted");
+                })
+                .collect(Collectors.toList());
+
+        Set<String> userIds = pendingReqs.stream()
+                .map(Requirement::getUserId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        Map<String, User> userMap = userRepository.findAllById(userIds).stream()
+                .collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Requirement req : pendingReqs) {
+            Map<String, Object> item = new HashMap<>();
+            User client = userMap.get(req.getUserId());
+            item.put("id", req.getId());
+            item.put("applicationId", req.getId() != null ? req.getId().replace("SRV-", "APP-") : "");
+            item.put("userId", req.getUserId());
+            item.put("status", req.getStatus());
+            item.put("staff", req.getStaff());
+            item.put("assignedStaffId", req.getAssignedStaffId());
+            item.put("assignedStaffName", req.getAssignedStaffName());
+            item.put("createdAt", req.getCreatedAt());
+            item.put("updatedAt", req.getUpdatedAt());
+            item.put("data", req.getData());
+            item.put("sectionStatuses", req.getSectionStatuses());
+
+            if (client != null) {
+                item.put("clientName", ((client.getFirstName() != null ? client.getFirstName() : "") + " " + (client.getLastName() != null ? client.getLastName() : "")).trim());
+                item.put("clientEmail", client.getEmail());
+                item.put("clientPhone", client.getPhone());
+                item.put("accountStatus", client.getStatus());
+            } else {
+                item.put("clientName", "Applicant");
+                item.put("clientEmail", "");
+                item.put("clientPhone", "");
+            }
+
+            // Extract company name option 1
+            String companyName = "Singapore Pte Ltd";
+            if (req.getData() != null && req.getData().containsKey("names")) {
+                Object namesObj = req.getData().get("names");
+                if (namesObj instanceof List && !((List<?>) namesObj).isEmpty()) {
+                    companyName = String.valueOf(((List<?>) namesObj).get(0));
+                }
+            }
+            item.put("proposedCompanyName", companyName);
+
+            result.add(item);
+        }
+
+        return ResponseEntity.ok(result);
+    }
+
+    private Optional<Requirement> findRequirementFlexible(String id) {
+        if (id == null || id.isEmpty()) return Optional.empty();
+        Optional<Requirement> req = requirementRepository.findById(id);
+        if (req.isPresent()) return req;
+        if (id.startsWith("APP-")) {
+            req = requirementRepository.findById(id.replace("APP-", "SRV-"));
+            if (req.isPresent()) return req;
+        }
+        if (id.startsWith("SRV-")) {
+            req = requirementRepository.findById(id.replace("SRV-", "APP-"));
+            if (req.isPresent()) return req;
+        }
+        return Optional.empty();
+    }
+
+    @GetMapping("/admin/applications/{id}")
+    public ResponseEntity<?> getApplicationDetails(@PathVariable String id) {
+        Optional<Requirement> reqOpt = findRequirementFlexible(id);
+        if (!reqOpt.isPresent()) {
+            return ResponseEntity.notFound().build();
+        }
+        Requirement req = reqOpt.get();
+        Map<String, Object> res = new HashMap<>();
+        res.put("id", req.getId());
+        res.put("userId", req.getUserId());
+        res.put("status", req.getStatus());
+        res.put("staff", req.getStaff());
+        res.put("assignedStaffId", req.getAssignedStaffId());
+        res.put("assignedStaffName", req.getAssignedStaffName());
+        res.put("rejectionReason", req.getRejectionReason());
+        res.put("reviewedAt", req.getReviewedAt());
+        res.put("createdAt", req.getCreatedAt());
+        res.put("updatedAt", req.getUpdatedAt());
+        res.put("data", req.getData());
+        res.put("sectionStatuses", req.getSectionStatuses());
+        
+        if (req.getUserId() != null) {
+            userRepository.findById(req.getUserId()).ifPresent(u -> {
+                res.put("clientFirstName", u.getFirstName());
+                res.put("clientLastName", u.getLastName());
+                res.put("clientEmail", u.getEmail());
+                res.put("clientPhone", u.getPhone());
+                res.put("clientStatus", u.getStatus());
+                res.put("clientCompanyName", u.getCompanyName());
+            });
+        }
+        return ResponseEntity.ok(res);
+    }
+
+    @PostMapping("/admin/applications/{id}/approve")
+    public ResponseEntity<?> approveApplication(@PathVariable String id, @RequestBody(required = false) Map<String, Object> body) {
+        Optional<Requirement> reqOpt = findRequirementFlexible(id);
+        if (!reqOpt.isPresent()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Requirement req = reqOpt.get();
+        req.setStatus("approved");
+        req.setReviewedAt(new Date());
+
+        String staffId = body != null && body.containsKey("staffId") ? String.valueOf(body.get("staffId")) : null;
+        String staffName = body != null && body.containsKey("staffName") ? String.valueOf(body.get("staffName")) : null;
+        String priority = body != null && body.containsKey("priority") ? String.valueOf(body.get("priority")) : "HIGH";
+        String notes = body != null && body.containsKey("notes") ? String.valueOf(body.get("notes")) : "";
+
+        // Resolve staff details if only id or only name passed
+        if (staffId != null && !staffId.isEmpty() && (staffName == null || staffName.isEmpty())) {
+            userRepository.findById(staffId).ifPresent(u -> {
+                req.setAssignedStaffName(((u.getFirstName() != null ? u.getFirstName() : "") + " " + (u.getLastName() != null ? u.getLastName() : "")).trim());
+            });
+        }
+        if (staffName != null && !staffName.isEmpty()) {
+            req.setStaff(staffName);
+            req.setAssignedStaffName(staffName);
+        }
+        if (staffId != null && !staffId.isEmpty()) {
+            req.setAssignedStaffId(staffId);
+        }
+
+        requirementRepository.save(req);
+
+        // 1. Activate client user
+        Optional<User> clientOpt = userRepository.findById(req.getUserId());
+        String companyName = "New Company";
+        String clientFullName = "Client";
+        String clientEmail = "";
+        
+        if (req.getData() != null && req.getData().containsKey("names")) {
+            Object namesObj = req.getData().get("names");
+            if (namesObj instanceof List && !((List<?>) namesObj).isEmpty()) {
+                companyName = String.valueOf(((List<?>) namesObj).get(0));
+            }
+        }
+
+        if (clientOpt.isPresent()) {
+            User client = clientOpt.get();
+            client.setStatus("ACTIVE");
+            client.setRole("CLIENT");
+            if (companyName != null && !companyName.isEmpty() && !"New Company".equals(companyName)) {
+                client.setCompanyName(companyName);
+            }
+            if (staffId != null && !staffId.isEmpty()) {
+                client.setAssignedStaffId(staffId);
+                client.setAssignedStaffName(req.getAssignedStaffName());
+                client.setAssignedAt(System.currentTimeMillis());
+            }
+            userRepository.save(client);
+            clientFullName = ((client.getFirstName() != null ? client.getFirstName() : "") + " " + (client.getLastName() != null ? client.getLastName() : "")).trim();
+            clientEmail = client.getEmail();
+        }
+
+        // 2. Create Task in Kanban / Task Management
+        try {
+            com.globalisor.backend.model.Task task = new com.globalisor.backend.model.Task();
+            task.setTitle("Incorporate " + companyName + " (ACRA Name Reservation & Filing)");
+            task.setDescription("Application approved by Admin. Review shareholder details, draft Constitution, and proceed with ACRA incorporation filing.\n\n" + (notes != null && !notes.isEmpty() ? "Admin Notes: " + notes : ""));
+            task.setCategory("Incorporation");
+            task.setType("REQUEST");
+            task.setTaskScope("CLIENT");
+            task.setIsInternal(false);
+            task.setStatus("PENDING");
+            task.setPriority(priority != null && !priority.isEmpty() ? priority.toUpperCase() : "HIGH");
+            task.setClientId(req.getUserId());
+            task.setClientName(clientFullName);
+            task.setClientEmail(clientEmail);
+            task.setCompanyName(companyName);
+            
+            if (staffId != null && !staffId.isEmpty()) {
+                task.setAssignedTo(com.globalisor.backend.model.Task.UserRef.builder()
+                        .id(staffId)
+                        .name(req.getAssignedStaffName() != null ? req.getAssignedStaffName() : "Staff Member")
+                        .role("STAFF")
+                        .build());
+            }
+
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+            task.setDueDate(sdf.format(new Date(System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000))); // 7 days from now
+            taskService.createTask(task);
+        } catch (Exception e) {
+            System.err.println("Could not auto-create Task on approval: " + e.getMessage());
+        }
+
+        // 3. Send notifications
+        try {
+            notificationService.sendNotification(
+                    req.getUserId(),
+                    "Application Approved!",
+                    "Congratulations! Your incorporation application for " + companyName + " has been approved.",
+                    "application_approved",
+                    req.getId(),
+                    "Critical"
+            );
+
+            if (staffId != null && !staffId.isEmpty()) {
+                notificationService.sendNotification(
+                        staffId,
+                        "New Incorporation Task Assigned",
+                        "You have been assigned to handle the incorporation for " + companyName + " (" + clientFullName + ").",
+                        "task_assignment",
+                        req.getId(),
+                        "Info"
+                );
+            }
+        } catch (Exception e) {}
+
+        Map<String, Object> resp = new HashMap<>();
+        resp.put("success", true);
+        resp.put("message", "Application approved successfully, client activated, and staff task created.");
+        resp.put("requirement", req);
+        return ResponseEntity.ok(resp);
+    }
+
+    @PostMapping("/admin/applications/{id}/reject")
+    public ResponseEntity<?> rejectApplication(@PathVariable String id, @RequestBody(required = false) Map<String, Object> body) {
+        Optional<Requirement> reqOpt = findRequirementFlexible(id);
+        if (!reqOpt.isPresent()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Requirement req = reqOpt.get();
+        req.setStatus("rejected");
+        req.setReviewedAt(new Date());
+
+        String reason = body != null && body.containsKey("reason") ? String.valueOf(body.get("reason")) : "Application returned for revision.";
+        req.setRejectionReason(reason);
+
+        requirementRepository.save(req);
+
+        // Update user status
+        userRepository.findById(req.getUserId()).ifPresent(u -> {
+            u.setStatus("REJECTED");
+            userRepository.save(u);
+        });
+
+        // Send notification to Client with reason
+        try {
+            notificationService.sendNotification(
+                    req.getUserId(),
+                    "Application Needs Revision",
+                    "Your application requires attention: " + reason,
+                    "application_rejected",
+                    req.getId(),
+                    "Warning"
+            );
+        } catch (Exception e) {}
+
+        Map<String, Object> resp = new HashMap<>();
+        resp.put("success", true);
+        resp.put("message", "Application marked as rejected / needs revision.");
+        resp.put("requirement", req);
+        return ResponseEntity.ok(resp);
+    }
+
     @PostMapping("/documents/request")
     public ResponseEntity<?> requestDocument(@RequestBody Map<String, String> body) {
         String clientId = body.get("clientId");
@@ -809,6 +1087,9 @@ public class AdminController {
                 if (trimmedRole.equalsIgnoreCase("ADMIN") || trimmedRole.equalsIgnoreCase("STAFF")) {
                     return false;
                 }
+            }
+            if ("PENDING_APPROVAL".equalsIgnoreCase(u.getStatus())) {
+                return false;
             }
             return true;
         }).collect(Collectors.toList());
