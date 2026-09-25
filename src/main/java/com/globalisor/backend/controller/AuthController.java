@@ -14,6 +14,7 @@ import com.globalisor.backend.model.Compliance;
 import com.globalisor.backend.repository.KycRepository;
 import com.globalisor.backend.repository.ComplianceRepository;
 import jakarta.validation.Valid;
+import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -56,44 +57,84 @@ public class AuthController {
         String inputLogin = loginRequest.getEmail() != null ? loginRequest.getEmail().trim() : "";
         String rawPassword = loginRequest.getPassword() != null ? loginRequest.getPassword().trim() : "";
 
-        // Find user by Email or Client ID directly from MongoDB
-        User user = userRepository.findByEmailIgnoreCase(inputLogin)
-                .orElseGet(() -> userRepository.findById(inputLogin).orElse(null));
+        // Find user by ID, Encrypted Email (queryable), or Plain Email
+        User user = null;
+
+        // 1. Try finding by ID directly (e.g. staff-admin, C-1001, etc.)
+        Optional<User> byId = userRepository.findById(inputLogin);
+        if (byId.isPresent()) {
+            user = byId.get();
+        }
+
+        // 2. Try finding by encrypted email (queryable AES)
+        if (user == null && encryptionUtils != null) {
+            try {
+                String encEmail = encryptionUtils.encryptQueryable(inputLogin);
+                if (encEmail != null) {
+                    user = userRepository.findByEmail(encEmail).orElse(null);
+                }
+                if (user == null) {
+                    String encEmailLower = encryptionUtils.encryptQueryable(inputLogin.toLowerCase());
+                    if (encEmailLower != null) {
+                        user = userRepository.findByEmail(encEmailLower).orElse(null);
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+
+        // 3. Try finding by plain email (case-insensitive or exact)
+        if (user == null) {
+            user = userRepository.findByEmailIgnoreCase(inputLogin)
+                    .orElseGet(() -> userRepository.findByEmail(inputLogin).orElse(null));
+        }
 
         if (user == null) {
             // Auto-provision if valid email structure
             if (inputLogin.contains("@")) {
-                String firstName = inputLogin.split("@")[0];
-                firstName = Character.toUpperCase(firstName.charAt(0)) + (firstName.length() > 1 ? firstName.substring(1) : "");
-                user = new User(firstName, "User", inputLogin, encoder.encode(rawPassword));
-                user.setId("C-" + System.currentTimeMillis());
-                user.setPlainPassword(rawPassword);
-                user.setRole("CLIENT");
-                userRepository.save(user);
+                try {
+                    String firstName = inputLogin.split("@")[0];
+                    firstName = Character.toUpperCase(firstName.charAt(0)) + (firstName.length() > 1 ? firstName.substring(1) : "");
+                    user = new User(firstName, "User", inputLogin, encoder.encode(rawPassword));
+                    user.setId("C-" + System.currentTimeMillis());
+                    user.setPlainPassword(rawPassword);
+                    user.setRole("CLIENT");
+                    user = userRepository.save(user);
 
-                Kyc kyc = new Kyc();
-                kyc.setId("KYC-" + System.currentTimeMillis());
-                kyc.setClientId(user.getId());
-                kyc.setName(user.getFirstName() + " " + user.getLastName());
-                kyc.setIdType("N/A");
-                kyc.setIdNum("N/A");
-                kyc.setNation("N/A");
-                kyc.setStatus("pending");
-                kyc.setRisk("Low");
-                kyc.setLastUpdated(System.currentTimeMillis());
-                kyc.getAuditLogs().add("KYC profile initialized on user registration.");
-                kycRepository.save(kyc);
+                    Kyc kyc = new Kyc();
+                    kyc.setId("KYC-" + System.currentTimeMillis());
+                    kyc.setClientId(user.getId());
+                    kyc.setName(user.getFirstName() + " " + user.getLastName());
+                    kyc.setIdType("N/A");
+                    kyc.setIdNum("N/A");
+                    kyc.setNation("N/A");
+                    kyc.setStatus("pending");
+                    kyc.setRisk("Low");
+                    kyc.setLastUpdated(System.currentTimeMillis());
+                    kyc.getAuditLogs().add("KYC profile initialized on user registration.");
+                    kycRepository.save(kyc);
 
-                Compliance compliance = new Compliance();
-                compliance.setId("COMP-" + System.currentTimeMillis());
-                compliance.setClientId(user.getId());
-                compliance.setName(user.getFirstName() + " " + user.getLastName());
-                compliance.setType("AML Screening");
-                compliance.setStatus("pending");
-                compliance.setRisk("Low");
-                compliance.setLastUpdated(System.currentTimeMillis());
-                compliance.getAuditLogs().add("AML compliance monitoring initialized on registration.");
-                complianceRepository.save(compliance);
+                    Compliance compliance = new Compliance();
+                    compliance.setId("COMP-" + System.currentTimeMillis());
+                    compliance.setClientId(user.getId());
+                    compliance.setName(user.getFirstName() + " " + user.getLastName());
+                    compliance.setType("AML Screening");
+                    compliance.setStatus("pending");
+                    compliance.setRisk("Low");
+                    compliance.setLastUpdated(System.currentTimeMillis());
+                    compliance.getAuditLogs().add("AML compliance monitoring initialized on registration.");
+                    complianceRepository.save(compliance);
+                } catch (Exception e) {
+                    // Fallback re-lookup in case of duplicate key or concurrent write
+                    try {
+                        String encEmail = encryptionUtils.encryptQueryable(inputLogin);
+                        user = userRepository.findByEmail(encEmail)
+                                .orElseGet(() -> userRepository.findByEmailIgnoreCase(inputLogin).orElse(null));
+                    } catch (Exception ignored) {}
+
+                    if (user == null) {
+                        return ResponseEntity.status(401).body(new MessageResponse("Error: User or Client ID not found."));
+                    }
+                }
             } else {
                 return ResponseEntity.status(401).body(new MessageResponse("Error: User or Client ID not found."));
             }

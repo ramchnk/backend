@@ -21,9 +21,19 @@ public class UserDetailsServiceImpl implements UserDetailsService {
     @Override
     @Transactional
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
-        String encryptedEmail = encryptionUtils.encryptQueryable(email);
-        User user = userRepository.findByEmail(encryptedEmail)
-                .orElseThrow(() -> new UsernameNotFoundException("User Not Found with email: " + email));
+        String encryptedEmail = encryptionUtils != null ? encryptionUtils.encryptQueryable(email) : null;
+        User user = null;
+        if (encryptedEmail != null) {
+            user = userRepository.findByEmail(encryptedEmail).orElse(null);
+        }
+        if (user == null) {
+            user = userRepository.findByEmailIgnoreCase(email)
+                    .orElseGet(() -> userRepository.findById(email).orElse(null));
+        }
+
+        if (user == null) {
+            throw new UsernameNotFoundException("User Not Found with email/ID: " + email);
+        }
 
         return UserDetailsImpl.build(user);
     }
