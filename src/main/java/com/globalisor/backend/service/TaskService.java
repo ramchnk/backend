@@ -168,8 +168,26 @@ public class TaskService {
     }
 
     public List<Task> getAllTasks(String status, String priority, String category, String clientId, String companyName, String assignedToId, String taskScope, Boolean isInternal) {
+        return getAllTasks(status, priority, category, clientId, companyName, assignedToId, taskScope, isInternal, null);
+    }
+
+    public List<Task> getAllTasks(String status, String priority, String category, String clientId, String companyName, String assignedToId, String taskScope, Boolean isInternal, Integer completedDays) {
         List<Task> all = taskRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
+        final Integer days = completedDays;
+        final long cutoff = (days != null && days > 0) ? (System.currentTimeMillis() - (days * 86400000L)) : 0L;
+
         return all.stream().filter(task -> {
+            // Filter completed tasks by cutoff time if completedDays > 0
+            if (days != null && days > 0) {
+                String st = task.getStatus() != null ? task.getStatus().toUpperCase() : "";
+                if ("COMPLETED".equals(st) || "RESOLVED".equals(st) || "LODGED".equals(st) || "CANCELLED".equals(st) || "CLOSED".equals(st)) {
+                    Long taskTime = task.getUpdatedAt() != null ? task.getUpdatedAt() : task.getCreatedAt();
+                    if (taskTime != null && taskTime < cutoff) {
+                        return false;
+                    }
+                }
+            }
+
             boolean isTaskInternal = Boolean.TRUE.equals(task.getIsInternal()) || "INTERNAL".equalsIgnoreCase(task.getTaskScope());
 
             // Scope / Internal filter

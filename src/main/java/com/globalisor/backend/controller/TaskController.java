@@ -26,9 +26,10 @@ public class TaskController {
             @RequestParam(required = false) String companyName,
             @RequestParam(required = false) String assignedToId,
             @RequestParam(required = false) String taskScope,
-            @RequestParam(required = false) Boolean isInternal
+            @RequestParam(required = false) Boolean isInternal,
+            @RequestParam(required = false) Integer completedDays
     ) {
-        return ResponseEntity.ok(taskService.getAllTasks(status, priority, category, clientId, companyName, assignedToId, taskScope, isInternal));
+        return ResponseEntity.ok(taskService.getAllTasks(status, priority, category, clientId, companyName, assignedToId, taskScope, isInternal, completedDays));
     }
 
     @GetMapping("/form-options")
