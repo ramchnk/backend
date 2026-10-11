@@ -54,15 +54,34 @@ public class DashboardController {
                 .map(u -> ((u.getFirstName() != null ? u.getFirstName() : "") + " " + (u.getLastName() != null ? u.getLastName() : "")).trim().toLowerCase())
                 .collect(Collectors.toSet());
 
+        List<Requirement> requirements = requirementRepository.findAll();
+        Set<String> incompleteAppUserIds = requirements.stream()
+                .filter(r -> {
+                    String st = r.getStatus() != null ? r.getStatus().toLowerCase().trim() : "";
+                    return !st.contains("completed");
+                })
+                .map(Requirement::getUserId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
         List<User> users = allUsers.stream()
                 .filter(u -> {
                     String role = u.getRole();
-                    if (role == null) return true;
-                    String trimmedRole = role.trim();
-                    return !trimmedRole.equalsIgnoreCase("ADMIN") && !trimmedRole.equalsIgnoreCase("STAFF");
+                    if (role != null) {
+                        String trimmedRole = role.trim();
+                        if (trimmedRole.equalsIgnoreCase("ADMIN") || trimmedRole.equalsIgnoreCase("STAFF")) {
+                            return false;
+                        }
+                    }
+                    if ("PENDING_APPROVAL".equalsIgnoreCase(u.getStatus())) {
+                        return false;
+                    }
+                    if (u.getId() != null && incompleteAppUserIds.contains(u.getId())) {
+                        return false;
+                    }
+                    return true;
                 })
                 .collect(Collectors.toList());
-        List<Requirement> requirements = requirementRepository.findAll();
 
         List<DashboardResponse.ClientInfo> clientInfos = users.stream().map(user -> {
             List<Requirement> userReqs = requirements.stream()

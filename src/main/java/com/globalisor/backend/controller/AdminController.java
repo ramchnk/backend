@@ -12,6 +12,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import com.globalisor.backend.security.UserDetailsImpl;
 import com.globalisor.backend.security.EncryptionUtils;
 import com.globalisor.backend.model.Onboarding;
 import com.globalisor.backend.model.Kyc;
@@ -41,6 +44,9 @@ public class AdminController {
 
     @Autowired
     private com.globalisor.backend.service.TaskService taskService;
+
+    @Autowired
+    private com.globalisor.backend.service.ComplianceBoxService complianceBoxService;
 
     @Autowired
     UserRepository userRepository;
@@ -346,7 +352,7 @@ public class AdminController {
 
     @PatchMapping("/services/{id}")
     public ResponseEntity<?> updateServiceStatus(@PathVariable String id, @RequestBody Map<String, Object> body) {
-        Optional<Requirement> reqOpt = requirementRepository.findById(id);
+        Optional<Requirement> reqOpt = findRequirementFlexible(id);
         if (reqOpt.isEmpty()) return ResponseEntity.notFound().build();
         
         Requirement req = reqOpt.get();
@@ -544,6 +550,25 @@ public class AdminController {
             } catch (Exception e) {}
         }
         
+        // When process is completed or approved, activate client user so they now appear in Clients directory
+        if (newStatus != null && ("completed".equalsIgnoreCase(newStatus.trim()) || "approved".equalsIgnoreCase(newStatus.trim()))) {
+            if (req.getUserId() != null) {
+                userRepository.findById(req.getUserId()).ifPresent(u -> {
+                    u.setStatus("ACTIVE");
+                    userRepository.save(u);
+                });
+            }
+            try {
+                onboardingRepository.findFirstByClientIdOrderByCreatedAtDesc(req.getUserId()).ifPresent(ob -> {
+                    ob.setStatus("completed");
+                    ob.setProgressPercent(100);
+                    ob.setPortalActivated(true);
+                    ob.setUpdatedAt(System.currentTimeMillis());
+                    onboardingRepository.save(ob);
+                });
+            } catch (Exception ignored) {}
+        }
+
         return ResponseEntity.ok(saved);
     }
 
@@ -901,6 +926,154 @@ public class AdminController {
         return ResponseEntity.ok(resp);
     }
 
+    @PostMapping(value = {"/applications/{id}/pickup", "/admin/applications/{id}/pickup"})
+    public ResponseEntity<?> pickupApplication(@PathVariable String id, @RequestBody(required = false) Map<String, Object> body) {
+        Optional<Requirement> reqOpt = findRequirementFlexible(id);
+        if (!reqOpt.isPresent()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Requirement req = reqOpt.get();
+        String staffId = body != null && body.containsKey("staffId") ? String.valueOf(body.get("staffId")) : null;
+        String staffName = body != null && body.containsKey("staffName") ? String.valueOf(body.get("staffName")) : null;
+
+        // Try getting logged in user if not provided in body
+        if ((staffId == null || staffId.isEmpty()) || (staffName == null || staffName.isEmpty())) {
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            if (authentication != null && authentication.getPrincipal() instanceof UserDetailsImpl) {
+                UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
+                if (staffId == null || staffId.isEmpty()) staffId = userDetails.getId();
+                if (staffName == null || staffName.isEmpty()) {
+                    staffName = ((userDetails.getFirstName() != null ? userDetails.getFirstName() : "") + " " + (userDetails.getLastName() != null ? userDetails.getLastName() : "")).trim();
+                    if (staffName.isEmpty()) staffName = userDetails.getUsername();
+                }
+            }
+        }
+
+        // If staffId provided but not staffName, resolve from userRepository
+        if (staffId != null && !staffId.isEmpty() && (staffName == null || staffName.isEmpty())) {
+            userRepository.findById(staffId).ifPresent(u -> {
+                req.setAssignedStaffName(((u.getFirstName() != null ? u.getFirstName() : "") + " " + (u.getLastName() != null ? u.getLastName() : "")).trim());
+            });
+        }
+
+        if (staffName != null && !staffName.isEmpty()) {
+            req.setStaff(staffName);
+            req.setAssignedStaffName(staffName);
+        }
+        if (staffId != null && !staffId.isEmpty()) {
+            req.setAssignedStaffId(staffId);
+        }
+
+        req.setStatus("In Progress");
+        req.setUpdatedAt(new Date());
+        Requirement saved = requirementRepository.save(req);
+
+        // Sync to Onboarding if exists
+        try {
+            onboardingRepository.findFirstByClientIdOrderByCreatedAtDesc(req.getUserId()).ifPresent(ob -> {
+                ob.setUpdatedAt(System.currentTimeMillis());
+                ob.getAuditLogs().add("Application picked up by staff member " + req.getAssignedStaffName() + " at " + new Date());
+                onboardingRepository.save(ob);
+            });
+        } catch (Exception ignored) {}
+
+        // Resolve company name and client name
+        String companyName = "Singapore Pte Ltd";
+        if (req.getData() != null && req.getData().containsKey("names")) {
+            Object namesObj = req.getData().get("names");
+            if (namesObj instanceof List && !((List<?>) namesObj).isEmpty()) {
+                companyName = String.valueOf(((List<?>) namesObj).get(0));
+            }
+        }
+        String clientFullName = "Applicant";
+        String clientEmail = "";
+        if (req.getUserId() != null) {
+            Optional<User> clientOpt = userRepository.findById(req.getUserId());
+            if (clientOpt.isPresent()) {
+                User client = clientOpt.get();
+                clientFullName = ((client.getFirstName() != null ? client.getFirstName() : "") + " " + (client.getLastName() != null ? client.getLastName() : "")).trim();
+                clientEmail = client.getEmail();
+                if (staffId != null && !staffId.isEmpty()) {
+                    client.setAssignedStaffId(staffId);
+                    client.setAssignedStaffName(req.getAssignedStaffName());
+                    client.setAssignedAt(System.currentTimeMillis());
+                    userRepository.save(client);
+                }
+            }
+        }
+
+        // Auto-create Task in Kanban / Task Management for the staff member
+        try {
+            com.globalisor.backend.model.Task task = new com.globalisor.backend.model.Task();
+            task.setTitle("Incorporate " + companyName + " (ACRA Name Reservation & Filing)");
+            task.setDescription("Application picked up by staff " + req.getAssignedStaffName() + ". Proceed with constitution drafting, client identity verification, and ACRA filing.");
+            task.setCategory("Incorporation");
+            task.setType("REQUEST");
+            task.setTaskScope("CLIENT");
+            task.setIsInternal(false);
+            task.setStatus("IN_PROGRESS");
+            task.setPriority("HIGH");
+            task.setClientId(req.getUserId());
+            task.setClientName(clientFullName);
+            task.setClientEmail(clientEmail);
+            task.setCompanyName(companyName);
+            if (staffId != null && !staffId.isEmpty()) {
+                task.setAssignedTo(com.globalisor.backend.model.Task.UserRef.builder()
+                        .id(staffId)
+                        .name(req.getAssignedStaffName() != null ? req.getAssignedStaffName() : "Staff Member")
+                        .role("STAFF")
+                        .build());
+            }
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+            task.setDueDate(sdf.format(new Date(System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000)));
+            taskService.createTask(task);
+        } catch (Exception e) {
+            System.err.println("Could not auto-create Task on application pickup: " + e.getMessage());
+        }
+
+        // Send notifications
+        try {
+            // Notify Admin
+            notificationService.sendNotification(
+                    "admin",
+                    "Application Picked Up",
+                    req.getAssignedStaffName() + " has picked up the incorporation application for " + companyName + ".",
+                    "application_pickup",
+                    req.getId(),
+                    "Info",
+                    "applications.html"
+            );
+            // Notify Client
+            if (req.getUserId() != null) {
+                notificationService.sendNotification(
+                        req.getUserId(),
+                        "Staff Assigned to Your Application",
+                        req.getAssignedStaffName() + " has picked up your incorporation application for " + companyName + " and is now processing it.",
+                        "staff_assigned",
+                        req.getId(),
+                        "Info"
+                );
+            }
+        } catch (Exception ignored) {}
+
+        Map<String, Object> pickupResp = new HashMap<>();
+        pickupResp.put("success", true);
+        pickupResp.put("message", "Application picked up successfully by " + req.getAssignedStaffName());
+        pickupResp.put("requirement", saved);
+        return ResponseEntity.ok(pickupResp);
+    }
+
+    @PostMapping({"/applications/{id}/sync-compliancebox", "/admin/applications/{id}/sync-compliancebox"})
+    public ResponseEntity<?> syncApplicationComplianceBox(@PathVariable String id) {
+        Map<String, Object> result = complianceBoxService.syncApplication(id);
+        if (Boolean.TRUE.equals(result.get("success"))) {
+            return ResponseEntity.ok(result);
+        } else {
+            return ResponseEntity.badRequest().body(result);
+        }
+    }
+
     @PostMapping("/admin/applications/{id}/reject")
     public ResponseEntity<?> rejectApplication(@PathVariable String id, @RequestBody(required = false) Map<String, Object> body) {
         Optional<Requirement> reqOpt = findRequirementFlexible(id);
@@ -1218,6 +1391,17 @@ public class AdminController {
 
         List<User> users = userRepository.findAll();
 
+        // Exclude applicants whose incorporation/application process has not completed
+        List<Requirement> allReqs = requirementRepository.findAll();
+        Set<String> incompleteAppUserIds = allReqs.stream()
+                .filter(r -> {
+                    String st = r.getStatus() != null ? r.getStatus().toLowerCase().trim() : "";
+                    return !st.contains("completed");
+                })
+                .map(Requirement::getUserId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
         List<User> clients = users.stream().filter(u -> {
             String role = u.getRole();
             if (role != null) {
@@ -1227,6 +1411,9 @@ public class AdminController {
                 }
             }
             if ("PENDING_APPROVAL".equalsIgnoreCase(u.getStatus())) {
+                return false;
+            }
+            if (u.getId() != null && incompleteAppUserIds.contains(u.getId())) {
                 return false;
             }
             return true;

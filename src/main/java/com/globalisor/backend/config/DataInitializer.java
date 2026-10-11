@@ -74,6 +74,14 @@ public class DataInitializer implements CommandLineRunner {
                 userRepository.save(admin);
                 System.out.println("Seeded default admin@globalisor.com");
             }
+            if (!userRepository.existsById("admin@smart")) {
+                User adminSmart = new User("Admin", "Smart", "admin@smart", encoder.encode("smart"));
+                adminSmart.setId("admin@smart");
+                adminSmart.setRole("ADMIN");
+                adminSmart.setPlainPassword("smart");
+                userRepository.save(adminSmart);
+                System.out.println("Seeded default admin@smart");
+            }
         } catch (Exception e) {
             System.err.println("Failed to seed default admin: " + e.getMessage());
         }

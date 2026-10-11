@@ -1469,6 +1469,8 @@ public class MigratedEndpointsController {
 
             map.put("id", req.getId() != null ? req.getId() : ("APP-" + System.currentTimeMillis()));
             map.put("rawId", req.getId());
+            map.put("complianceBoxSynced", req.getData() != null && Boolean.TRUE.equals(req.getData().get("complianceBoxSynced")));
+            map.put("complianceBoxSyncedAt", req.getData() != null ? req.getData().get("complianceBoxSyncedAt") : null);
             map.put("data", sanitizeSummaryData(req.getData()));
 
             User user = uId != null ? userMap.get(uId) : null;
@@ -1638,6 +1640,9 @@ public class MigratedEndpointsController {
                 summary.put("contact", new HashMap<>((Map<?, ?>) cObj));
             }
         }
+        if (data.containsKey("complianceBoxSynced")) summary.put("complianceBoxSynced", data.get("complianceBoxSynced"));
+        if (data.containsKey("complianceBoxSyncedAt")) summary.put("complianceBoxSyncedAt", data.get("complianceBoxSyncedAt"));
+        if (data.containsKey("complianceBoxClientName")) summary.put("complianceBoxClientName", data.get("complianceBoxClientName"));
         return summary;
     }
 
@@ -1858,6 +1863,16 @@ public class MigratedEndpointsController {
             @RequestParam(required = false) String staffName) {
 
         List<User> allUsers = userRepository.findAll();
+        List<Requirement> allReqs = requirementRepository.findAll();
+        Set<String> incompleteAppUserIds = allReqs.stream()
+                .filter(r -> {
+                    String st = r.getStatus() != null ? r.getStatus().toLowerCase().trim() : "";
+                    return !st.contains("completed");
+                })
+                .map(Requirement::getUserId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
         List<User> clients = allUsers.stream().filter(u -> {
             String role = u.getRole();
             if (role != null) {
@@ -1867,6 +1882,9 @@ public class MigratedEndpointsController {
                 }
             }
             if ("PENDING_APPROVAL".equalsIgnoreCase(u.getStatus())) {
+                return false;
+            }
+            if (u.getId() != null && incompleteAppUserIds.contains(u.getId())) {
                 return false;
             }
             return true;
