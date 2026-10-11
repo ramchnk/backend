@@ -56,3 +56,10 @@ gcp:
     credentials-json: ${GCP_CREDENTIALS_JSON:""}
     location: ${GCP_STORAGE_LOCATION:asia-southeast1}
 
+compliancebox:
+  api:
+    url: ${COMPLIANCEBOX_API_URL:https://api.compliancebox.co/api/clients}
+    token: ${COMPLIANCEBOX_TOKEN:4d3693b0-201c-4204-9729-e7d779a613b6}
+    company-id: ${COMPLIANCEBOX_COMPANY_ID:629dbca7374a1ac76b559ee7}
+
+
