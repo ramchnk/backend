@@ -403,7 +403,7 @@ public class RequirementController {
             
             clientUser = new User(firstName, lastName, email, encodedPassword);
             clientUser.setRole("CLIENT");
-            clientUser.setStatus("ACTIVE");
+            clientUser.setStatus("PENDING_APPROVAL");
             clientUser.setPlainPassword(rawPassword);
             userRepository.save(clientUser);
             
@@ -458,6 +458,9 @@ public class RequirementController {
             requirement.setCreatedAt(new Date());
             requirement.setUpdatedAt(new Date());
         }
+        requirement.setStaff("Unassigned");
+        requirement.setAssignedStaffId(null);
+        requirement.setAssignedStaffName("Unassigned");
         if (requirement.getApplicationReferenceNo() == null || requirement.getApplicationReferenceNo().trim().isEmpty() || !requirement.getApplicationReferenceNo().startsWith("APP-")) {
             requirement.setApplicationReferenceNo(generateNextApplicationReferenceNo(requirement));
         }
