@@ -42,6 +42,9 @@ public class RequirementController {
     private com.globalisor.backend.service.NotificationService notificationService;
 
     @Autowired
+    private com.globalisor.backend.service.AmlScreeningService amlScreeningService;
+
+    @Autowired
     UserRepository userRepository;
 
     @Autowired
@@ -589,6 +592,39 @@ public class RequirementController {
             kyc.setRisk("Low");
             kyc.setLastUpdated(System.currentTimeMillis());
             kyc.getAuditLogs().add("KYC profile submitted with pre-registration documentation at " + new Date());
+
+            // Automated Real-Time AML Screening across Applicant, Directors, and Shareholders
+            try {
+                Map<String, Object> amlReport = amlScreeningService.screenIncorporationApplication(data);
+                String overallAmlStatus = (String) amlReport.getOrDefault("overallAmlStatus", "clean");
+                String overallRisk = (String) amlReport.getOrDefault("overallRiskLevel", "Low");
+                int flaggedCount = ((Number) amlReport.getOrDefault("flaggedCount", 0)).intValue();
+
+                kyc.setAmlStatus(overallAmlStatus);
+                kyc.setRisk(overallRisk);
+                if (flaggedCount > 0) {
+                    kyc.setSanctionsStatus("match");
+                    kyc.setStatus("flagged");
+                    kyc.getAuditLogs().add("AML Screening ALERT: " + flaggedCount + " party match(es) detected across directors/shareholders. Compliance review required.");
+                } else {
+                    kyc.setSanctionsStatus("clean");
+                    kyc.setStatus("under review");
+                    kyc.getAuditLogs().add("AML Screening CLEAN: All directors, shareholders, and applicants verified against UN & OFAC watchlists.");
+                }
+
+                Optional<Compliance> compOpt = complianceRepository.findFirstByClientIdOrderByLastUpdatedDesc(clientUser.getId());
+                if (compOpt.isPresent()) {
+                    Compliance comp = compOpt.get();
+                    comp.setAmlStatus(kyc.getAmlStatus());
+                    comp.setRisk(kyc.getRisk());
+                    comp.setSanctionsStatus(kyc.getSanctionsStatus());
+                    comp.getAuditLogs().add("Real-time AML screening: " + (flaggedCount > 0 ? "FLAGGED (" + flaggedCount + " hits)" : "CLEAN"));
+                    complianceRepository.save(comp);
+                }
+            } catch (Exception amlEx) {
+                System.err.println("AML screening non-fatal error: " + amlEx.getMessage());
+            }
+
             kycRepository.save(kyc);
         } catch (Exception ex) {
             System.err.println("Error syncing with onboarding and kyc: " + ex.getMessage());

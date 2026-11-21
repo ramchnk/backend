@@ -58,6 +58,9 @@ public class MigratedEndpointsController {
     com.globalisor.backend.service.NotificationService notificationService;
 
     @Autowired
+    private com.globalisor.backend.service.AmlScreeningService amlScreeningService;
+
+    @Autowired
     MessageRepository messageRepository;
 
     @Autowired
@@ -548,13 +551,17 @@ public class MigratedEndpointsController {
             kyc.getAuditLogs().add("PEP screening: CLEAN. No database matches found.");
         }
 
-        // 3. Sanctions Lists Check (OFAC, EU, UN, MAS, HMT)
-        if (lowerName.contains("sanction") || lowerName.contains("terrorist") || lowerName.contains("marcus ng")) {
+        // 3. Real-Time Sanctions Watchlists Check (UN, OFAC, EU, MAS from AML Data Warehouse)
+        com.globalisor.backend.service.AmlScreeningService.AmlScreeningResult amlRes =
+                amlScreeningService.screenPerson(kyc.getName(), kyc.getIdNum(), kyc.getNation(), null);
+
+        if (amlRes.isMatchFound() || lowerName.contains("sanction") || lowerName.contains("terrorist")) {
             kyc.setSanctionsStatus("match");
-            kyc.getAuditLogs().add("Sanctions monitoring: MATCH DETECTED. Match found on watchlists.");
+            String topHit = !amlRes.getMatches().isEmpty() ? amlRes.getMatches().get(0).getRecordId() + " (" + amlRes.getHighestConfidence() + "%)" : "Watchlist Hit";
+            kyc.getAuditLogs().add("Sanctions monitoring: MATCH DETECTED via AML Warehouse (" + topHit + "). " + amlRes.getSummary());
         } else {
             kyc.setSanctionsStatus("clean");
-            kyc.getAuditLogs().add("Sanctions monitoring: CLEAN. No watchlist matches detected.");
+            kyc.getAuditLogs().add("Sanctions monitoring: CLEAN. Screened against UN & OFAC watchlists (0 hits).");
         }
 
         // 4. Overall AML & Compliance status aggregation
