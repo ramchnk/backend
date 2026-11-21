@@ -59,6 +59,15 @@ public class AmlController {
     }
 
     /**
+     * Screen an entire incorporation application (applicant, directors, shareholders, ubos)
+     */
+    @PostMapping("/screen-application")
+    public ResponseEntity<?> screenApplication(@RequestBody Map<String, Object> payload) {
+        Map<String, Object> result = amlScreeningService.screenIncorporationApplication(payload);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
      * Search sanctions warehouse records
      */
     @GetMapping("/search")

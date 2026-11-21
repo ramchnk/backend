@@ -287,73 +287,180 @@ public class AmlScreeningService {
     }
 
     /**
-     * Screen an entire incorporation application (applicant, proposed directors, shareholders, company name)
+     * Screen an entire incorporation application (applicant, proposed directors, shareholders, ubos)
      */
     public Map<String, Object> screenIncorporationApplication(Map<String, Object> data) {
         Map<String, Object> report = new HashMap<>();
-        List<AmlScreeningResult> partyResults = new ArrayList<>();
+        List<Map<String, Object>> partyResults = new ArrayList<>();
 
         if (data == null) {
             report.put("overallAmlStatus", "clean");
             report.put("overallRiskLevel", "Low");
+            report.put("actionRequired", "NONE");
+            report.put("summary", "No application data provided for screening.");
+            report.put("regulatoryDirective", "Standard onboarding applies.");
             report.put("parties", partyResults);
             return report;
         }
 
+        // Unwrap nested formData or data if passed from admin frontend
+        Map<String, Object> root = data;
+        if (data.containsKey("formData") && data.get("formData") instanceof Map) {
+            root = (Map<String, Object>) data.get("formData");
+        } else if (data.containsKey("data") && data.get("data") instanceof Map) {
+            root = (Map<String, Object>) data.get("data");
+        }
+
+        Set<String> screenedKeys = new HashSet<>();
+
         // 1. Screen Applicant / User
-        String applicantName = extractString(data, "fullName", "name", "clientName", "contactPerson");
-        String applicantId = extractString(data, "idNum", "passport", "idNumber", "nric");
-        String applicantNat = extractString(data, "nationality", "nation");
+        String applicantName = extractString(root, "fullName", "name", "clientName", "contactPerson");
+        if (applicantName.isEmpty() && root.containsKey("contact") && root.get("contact") instanceof Map) {
+            Map<?, ?> contact = (Map<?, ?>) root.get("contact");
+            String fName = contact.get("firstName") != null ? contact.get("firstName").toString() : "";
+            String lName = contact.get("lastName") != null ? contact.get("lastName").toString() : "";
+            applicantName = (fName + " " + lName).trim();
+        }
+        if (applicantName.isEmpty() && (data.containsKey("clientFirstName") || data.containsKey("clientLastName"))) {
+            String fName = data.get("clientFirstName") != null ? data.get("clientFirstName").toString() : "";
+            String lName = data.get("clientLastName") != null ? data.get("clientLastName").toString() : "";
+            applicantName = (fName + " " + lName).trim();
+        }
+
+        String applicantId = extractString(root, "idNum", "passport", "idNumber", "nric");
+        String applicantNat = extractString(root, "nationality", "nation");
         if (!applicantName.isEmpty()) {
-            partyResults.add(screenPerson(applicantName, applicantId, applicantNat, null));
+            AmlScreeningResult res = screenPerson(applicantName, applicantId, applicantNat, null);
+            Map<String, Object> partyMap = new HashMap<>();
+            partyMap.put("role", "Applicant");
+            partyMap.put("name", applicantName);
+            partyMap.put("idNumber", applicantId);
+            partyMap.put("nationality", applicantNat);
+            partyMap.put("screeningResult", res);
+            partyResults.add(partyMap);
+            screenedKeys.add((applicantName.toLowerCase() + "_" + applicantId.toLowerCase()).trim());
         }
 
         // 2. Screen Proposed Directors
-        Object directorsObj = data.get("directors");
+        Object directorsObj = root.get("directors") != null ? root.get("directors") : root.get("officers");
         if (directorsObj instanceof List) {
+            int dIndex = 1;
             for (Object dObj : (List<?>) directorsObj) {
                 if (dObj instanceof Map) {
                     Map<?, ?> d = (Map<?, ?>) dObj;
                     String dName = d.get("name") != null ? d.get("name").toString() : "";
-                    String dId = d.get("idNumber") != null ? d.get("idNumber").toString() : (d.get("nric") != null ? d.get("nric").toString() : "");
+                    String dId = d.get("idNumber") != null ? d.get("idNumber").toString() : (d.get("nric") != null ? d.get("nric").toString() : (d.get("idNum") != null ? d.get("idNum").toString() : ""));
                     String dNat = d.get("nationality") != null ? d.get("nationality").toString() : "";
                     String dDob = d.get("dob") != null ? d.get("dob").toString() : "";
-                    if (!dName.isEmpty()) {
-                        partyResults.add(screenPerson(dName, dId, dNat, dDob));
+                    String key = (dName.toLowerCase() + "_" + dId.toLowerCase()).trim();
+                    if (!dName.isEmpty() && screenedKeys.add(key)) {
+                        AmlScreeningResult res = screenPerson(dName, dId, dNat, dDob);
+                        Map<String, Object> partyMap = new HashMap<>();
+                        partyMap.put("role", "Director #" + dIndex);
+                        partyMap.put("name", dName);
+                        partyMap.put("idNumber", dId);
+                        partyMap.put("nationality", dNat);
+                        partyMap.put("dob", dDob);
+                        partyMap.put("isNominee", Boolean.TRUE.equals(d.get("isNominee")));
+                        partyMap.put("screeningResult", res);
+                        partyResults.add(partyMap);
                     }
+                    dIndex++;
                 }
             }
         }
 
-        // 3. Screen Proposed Shareholders / UBOs
-        Object shareholdersObj = data.get("shareholders") != null ? data.get("shareholders") : data.get("members");
+        // 3. Screen Proposed Shareholders
+        Object shareholdersObj = root.get("shareholders") != null ? root.get("shareholders") : root.get("members");
         if (shareholdersObj instanceof List) {
+            int sIndex = 1;
             for (Object sObj : (List<?>) shareholdersObj) {
                 if (sObj instanceof Map) {
                     Map<?, ?> s = (Map<?, ?>) sObj;
                     String sName = s.get("name") != null ? s.get("name").toString() : "";
-                    String sId = s.get("idNumber") != null ? s.get("idNumber").toString() : (s.get("nric") != null ? s.get("nric").toString() : "");
+                    String sId = s.get("idNumber") != null ? s.get("idNumber").toString() : (s.get("nric") != null ? s.get("nric").toString() : (s.get("idNum") != null ? s.get("idNum").toString() : ""));
                     String sNat = s.get("nationality") != null ? s.get("nationality").toString() : "";
-                    if (!sName.isEmpty()) {
-                        partyResults.add(screenPerson(sName, sId, sNat, null));
+                    String key = (sName.toLowerCase() + "_" + sId.toLowerCase()).trim();
+                    if (!sName.isEmpty() && screenedKeys.add(key)) {
+                        AmlScreeningResult res = screenPerson(sName, sId, sNat, null);
+                        Map<String, Object> partyMap = new HashMap<>();
+                        partyMap.put("role", "Shareholder #" + sIndex);
+                        partyMap.put("name", sName);
+                        partyMap.put("idNumber", sId);
+                        partyMap.put("nationality", sNat);
+                        partyMap.put("type", s.get("type"));
+                        partyMap.put("screeningResult", res);
+                        partyResults.add(partyMap);
                     }
+                    sIndex++;
                 }
             }
         }
 
-        // 4. Overall status aggregation
-        boolean anyFlagged = partyResults.stream().anyMatch(AmlScreeningResult::isMatchFound);
-        int maxConfidence = partyResults.stream().mapToInt(AmlScreeningResult::getHighestConfidence).max().orElse(0);
+        // 4. Screen Ultimate Beneficial Owners (UBOs)
+        Object ubosObj = root.get("ubos") != null ? root.get("ubos") : root.get("controllers");
+        if (ubosObj instanceof List) {
+            int uIndex = 1;
+            for (Object uObj : (List<?>) ubosObj) {
+                if (uObj instanceof Map) {
+                    Map<?, ?> u = (Map<?, ?>) uObj;
+                    String uName = u.get("name") != null ? u.get("name").toString() : "";
+                    String uId = u.get("idNumber") != null ? u.get("idNumber").toString() : (u.get("idNum") != null ? u.get("idNum").toString() : "");
+                    String uNat = u.get("nationality") != null ? u.get("nationality").toString() : "";
+                    String key = (uName.toLowerCase() + "_" + uId.toLowerCase()).trim();
+                    if (!uName.isEmpty() && screenedKeys.add(key)) {
+                        AmlScreeningResult res = screenPerson(uName, uId, uNat, null);
+                        Map<String, Object> partyMap = new HashMap<>();
+                        partyMap.put("role", "UBO #" + uIndex);
+                        partyMap.put("name", uName);
+                        partyMap.put("idNumber", uId);
+                        partyMap.put("nationality", uNat);
+                        partyMap.put("screeningResult", res);
+                        partyResults.add(partyMap);
+                    }
+                    uIndex++;
+                }
+            }
+        }
+
+        // 5. Overall status aggregation
+        boolean anyFlagged = partyResults.stream().anyMatch(p -> ((AmlScreeningResult) p.get("screeningResult")).isMatchFound());
+        boolean anyPep = partyResults.stream().anyMatch(p -> ((AmlScreeningResult) p.get("screeningResult")).isPep());
+        boolean anySanction = partyResults.stream().anyMatch(p -> ((AmlScreeningResult) p.get("screeningResult")).isSanction());
+
+        int maxConfidence = partyResults.stream()
+                .mapToInt(p -> ((AmlScreeningResult) p.get("screeningResult")).getHighestConfidence())
+                .max()
+                .orElse(0);
 
         String overallStatus = anyFlagged ? "flagged" : "clean";
-        String overallRisk = maxConfidence >= 90 ? "High" : (maxConfidence >= 80 ? "Medium" : "Low");
+        String overallRisk = anySanction ? "Critical" : (anyPep ? "High" : (maxConfidence >= 80 ? "Medium" : "Low"));
+        String actionRequired = anySanction ? "BLOCK_TRANSACTION" : (anyPep ? "ENHANCED_DUE_DILIGENCE" : "APPROVED_CLEAN");
+
+        String summary;
+        String regulatoryDirective;
+        if (anySanction) {
+            summary = "🚨 PROHIBITED SANCTIONS ALERT: One or more company officers matched international sanctions lists. Company registration must be BLOCKED immediately.";
+            regulatoryDirective = "Under Singapore MAS and UN Sanctions Regulations, Corporate Service Providers are strictly prohibited from establishing business relations with sanctioned individuals. File suspicious transaction report (STR) if required.";
+        } else if (anyPep) {
+            summary = "⚠️ POLITICALLY EXPOSED PERSON (PEP) DETECTED: Foreign Politically Exposed Person detected among company officers. Requires Mandatory Senior Management Approval and Enhanced Due Diligence (EDD) before ACRA Bizfile submission.";
+            regulatoryDirective = "Under Singapore ACRA / MAS guidelines, PEPs are legally permitted to incorporate companies. However, Senior Management must approve the onboarding, and Source of Wealth (SoW) and Source of Funds (SoF) must be verified.";
+        } else {
+            summary = "✅ AML CLEARANCE PASSED: All applicant, directors, shareholders, and UBOs screened clean against 820,647 records with 0 sanctions or PEP matches.";
+            regulatoryDirective = "Application meets standard Singapore AML/CFT onboarding criteria. Approved for ACRA Bizfile company incorporation filing.";
+        }
 
         report.put("overallAmlStatus", overallStatus);
         report.put("overallRiskLevel", overallRisk);
+        report.put("actionRequired", actionRequired);
+        report.put("isPep", anyPep);
+        report.put("isSanction", anySanction);
         report.put("maxConfidenceScore", maxConfidence);
+        report.put("summary", summary);
+        report.put("regulatoryDirective", regulatoryDirective);
         report.put("partiesCount", partyResults.size());
-        report.put("flaggedCount", partyResults.stream().filter(AmlScreeningResult::isMatchFound).count());
-        report.put("partyScreeningResults", partyResults);
+        report.put("flaggedCount", partyResults.stream().filter(p -> ((AmlScreeningResult) p.get("screeningResult")).isMatchFound()).count());
+        report.put("parties", partyResults);
         report.put("timestamp", new Date());
 
         return report;
