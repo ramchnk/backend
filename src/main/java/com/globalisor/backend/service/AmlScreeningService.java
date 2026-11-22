@@ -20,6 +20,24 @@ public class AmlScreeningService {
     @Autowired
     private AmlWatchlistRepository amlWatchlistRepository;
 
+    private static final Set<String> STOP_TOKENS = new HashSet<>(Arrays.asList(
+            "http", "https", "com", "net", "org", "gov", "edu", "www", "script", "fetch",
+            "document", "cookie", "attacker", "alert", "eval", "null", "undefined", "true", "false",
+            "company", "pte", "ltd", "corp", "inc", "co", "the", "and", "llc", "gmbh", "holding",
+            "holdings", "group", "limited", "incorporated", "director", "shareholder", "nominee"
+    ));
+
+    public static String cleanNameString(String input) {
+        if (input == null) return "";
+        return input.replaceAll("(?is)<script.*?>.*?</script>", " ")
+                    .replaceAll("(?i)<[^>]+>", " ")
+                    .replaceAll("(?i)fetch\\s*\\([^)]*\\)", " ")
+                    .replaceAll("(?i)document\\.cookie", " ")
+                    .replaceAll("(?i)javascript:", " ")
+                    .trim()
+                    .replaceAll("\\s+", " ");
+    }
+
     @Data
     @Builder
     @NoArgsConstructor
@@ -66,23 +84,40 @@ public class AmlScreeningService {
      * Screen a single individual (Applicant, Director, Shareholder, UBO)
      */
     public AmlScreeningResult screenPerson(String fullName, String idNumber, String nationality, String dob) {
-        if (fullName == null || fullName.trim().isEmpty()) {
+        String rawName = cleanNameString(fullName);
+        String cleanId = idNumber != null ? idNumber.trim() : "";
+
+        if (rawName.isEmpty()) {
             return AmlScreeningResult.builder()
                     .matchFound(false)
                     .amlStatus("clean")
                     .riskLevel("Low")
                     .highestConfidence(0)
-                    .screenedName("")
-                    .screenedIdNumber(idNumber)
+                    .screenedName(fullName != null ? cleanNameString(fullName) : "")
+                    .screenedIdNumber(cleanId)
                     .actionRequired("NONE")
-                    .recommendation("No name provided for AML screening.")
-                    .summary("No name provided for AML screening.")
+                    .recommendation("No searchable name provided for AML screening.")
+                    .summary("AML Screening CLEAN: No searchable name characters provided.")
+                    .screenedAt(new Date())
                     .build();
         }
 
-        String rawName = fullName.trim();
         String normName = AmlDataIngestionService.normalizeName(rawName);
-        String cleanId = idNumber != null ? idNumber.trim() : "";
+        if (normName.isEmpty()) {
+            return AmlScreeningResult.builder()
+                    .matchFound(false)
+                    .amlStatus("clean")
+                    .riskLevel("Low")
+                    .highestConfidence(0)
+                    .screenedName(rawName)
+                    .screenedIdNumber(cleanId)
+                    .actionRequired("NONE")
+                    .recommendation("Applicant name contains no valid searchable characters.")
+                    .summary(String.format("AML Screening CLEAN: No searchable characters in name '%s'.", rawName))
+                    .screenedAt(new Date())
+                    .build();
+        }
+
         List<MatchDetail> matches = new ArrayList<>();
         Set<String> matchedRecordIds = new HashSet<>();
 
@@ -155,14 +190,19 @@ public class AmlScreeningService {
             String[] tokens = normName.split("\\s+");
             Set<String> searchedIds = new HashSet<>();
             List<AmlWatchlistRecord> candidates = new ArrayList<>();
+            int tokensQueried = 0;
 
             for (String token : tokens) {
-                if (token.length() >= 3) {
+                if (token.length() >= 3 && !STOP_TOKENS.contains(token)) {
                     List<AmlWatchlistRecord> hits = amlWatchlistRepository.findByNameCandidate(token, PageRequest.of(0, 30));
                     for (AmlWatchlistRecord hit : hits) {
                         if (searchedIds.add(hit.getId()) && !matchedRecordIds.contains(hit.getId())) {
                             candidates.add(hit);
                         }
+                    }
+                    tokensQueried++;
+                    if (tokensQueried >= 2) {
+                        break; // Cap candidate search to first 2 significant tokens to guarantee < 1s response time
                     }
                 }
             }
@@ -326,6 +366,14 @@ public class AmlScreeningService {
             String lName = data.get("clientLastName") != null ? data.get("clientLastName").toString() : "";
             applicantName = (fName + " " + lName).trim();
         }
+        if (applicantName.isEmpty() && data.containsKey("client")) {
+            applicantName = data.get("client") != null ? data.get("client").toString() : "";
+        }
+
+        applicantName = cleanNameString(applicantName);
+        if (applicantName.isEmpty()) {
+            applicantName = "Applicant";
+        }
 
         String applicantId = extractString(root, "idNum", "passport", "idNumber", "nric");
         String applicantNat = extractString(root, "nationality", "nation");
@@ -348,7 +396,8 @@ public class AmlScreeningService {
             for (Object dObj : (List<?>) directorsObj) {
                 if (dObj instanceof Map) {
                     Map<?, ?> d = (Map<?, ?>) dObj;
-                    String dName = d.get("name") != null ? d.get("name").toString() : "";
+                    String dName = cleanNameString(d.get("name") != null ? d.get("name").toString() : "");
+                    if (dName.isEmpty()) dName = "Director #" + dIndex;
                     String dId = d.get("idNumber") != null ? d.get("idNumber").toString() : (d.get("nric") != null ? d.get("nric").toString() : (d.get("idNum") != null ? d.get("idNum").toString() : ""));
                     String dNat = d.get("nationality") != null ? d.get("nationality").toString() : "";
                     String dDob = d.get("dob") != null ? d.get("dob").toString() : "";
@@ -377,7 +426,8 @@ public class AmlScreeningService {
             for (Object sObj : (List<?>) shareholdersObj) {
                 if (sObj instanceof Map) {
                     Map<?, ?> s = (Map<?, ?>) sObj;
-                    String sName = s.get("name") != null ? s.get("name").toString() : "";
+                    String sName = cleanNameString(s.get("name") != null ? s.get("name").toString() : "");
+                    if (sName.isEmpty()) sName = "Shareholder #" + sIndex;
                     String sId = s.get("idNumber") != null ? s.get("idNumber").toString() : (s.get("nric") != null ? s.get("nric").toString() : (s.get("idNum") != null ? s.get("idNum").toString() : ""));
                     String sNat = s.get("nationality") != null ? s.get("nationality").toString() : "";
                     String key = (sName.toLowerCase() + "_" + sId.toLowerCase()).trim();
@@ -404,7 +454,8 @@ public class AmlScreeningService {
             for (Object uObj : (List<?>) ubosObj) {
                 if (uObj instanceof Map) {
                     Map<?, ?> u = (Map<?, ?>) uObj;
-                    String uName = u.get("name") != null ? u.get("name").toString() : "";
+                    String uName = cleanNameString(u.get("name") != null ? u.get("name").toString() : "");
+                    if (uName.isEmpty()) uName = "UBO #" + uIndex;
                     String uId = u.get("idNumber") != null ? u.get("idNumber").toString() : (u.get("idNum") != null ? u.get("idNum").toString() : "");
                     String uNat = u.get("nationality") != null ? u.get("nationality").toString() : "";
                     String key = (uName.toLowerCase() + "_" + uId.toLowerCase()).trim();

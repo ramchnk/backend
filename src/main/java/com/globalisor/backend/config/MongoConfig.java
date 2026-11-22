@@ -87,7 +87,8 @@ public class MongoConfig {
                     Requirement.class,
                     Notification.class,
                     Message.class,
-                    MigrationJob.class
+                    MigrationJob.class,
+                    AcraEntity.class
             );
 
             for (Class<?> entityClass : entityClasses) {

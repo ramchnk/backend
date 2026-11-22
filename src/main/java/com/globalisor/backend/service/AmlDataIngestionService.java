@@ -42,7 +42,8 @@ public class AmlDataIngestionService {
 
     @PostConstruct
     public void init() {
-        // Check if database is empty; if so, populate baseline seed so screening works immediately
+        // Check if database is empty; if so, populate baseline seed so screening works
+        // immediately
         long count = amlWatchlistRepository.count();
         if (count == 0) {
             log.info("AML Watchlist database is empty. Populating baseline sanctions records...");
@@ -220,16 +221,20 @@ public class AmlDataIngestionService {
                             } else if ("FIRST_NAME".equalsIgnoreCase(endTag)) {
                                 record.setPrimaryName(val);
                             } else if ("SECOND_NAME".equalsIgnoreCase(endTag) && !val.isEmpty()) {
-                                record.setPrimaryName(record.getPrimaryName() != null ? record.getPrimaryName() + " " + val : val);
+                                record.setPrimaryName(
+                                        record.getPrimaryName() != null ? record.getPrimaryName() + " " + val : val);
                             } else if ("THIRD_NAME".equalsIgnoreCase(endTag) && !val.isEmpty()) {
-                                record.setPrimaryName(record.getPrimaryName() != null ? record.getPrimaryName() + " " + val : val);
+                                record.setPrimaryName(
+                                        record.getPrimaryName() != null ? record.getPrimaryName() + " " + val : val);
                             } else if ("FOURTH_NAME".equalsIgnoreCase(endTag) && !val.isEmpty()) {
-                                record.setPrimaryName(record.getPrimaryName() != null ? record.getPrimaryName() + " " + val : val);
+                                record.setPrimaryName(
+                                        record.getPrimaryName() != null ? record.getPrimaryName() + " " + val : val);
                             } else if ("ALIAS_NAME".equalsIgnoreCase(endTag) && !val.isEmpty()) {
                                 record.getAliases().add(val);
                             } else if ("DATE".equalsIgnoreCase(endTag) && !val.isEmpty()) {
                                 record.getDatesOfBirth().add(val);
-                            } else if ("VALUE".equalsIgnoreCase(endTag) && "NATIONALITY".equalsIgnoreCase(currentTag) && !val.isEmpty()) {
+                            } else if ("VALUE".equalsIgnoreCase(endTag) && "NATIONALITY".equalsIgnoreCase(currentTag)
+                                    && !val.isEmpty()) {
                                 record.getNationalities().add(val);
                             } else if ("NUMBER".equalsIgnoreCase(endTag) && !val.isEmpty()) {
                                 record.getPassportsOrIds().add(val);
@@ -351,7 +356,8 @@ public class AmlDataIngestionService {
                         if (record != null) {
                             if ("uid".equalsIgnoreCase(endTag)) {
                                 record.setId("OFAC-" + val);
-                            } else if ("firstName".equalsIgnoreCase(endTag) && "sdnEntry".equalsIgnoreCase(currentTag)) {
+                            } else if ("firstName".equalsIgnoreCase(endTag)
+                                    && "sdnEntry".equalsIgnoreCase(currentTag)) {
                                 firstName = val;
                             } else if ("lastName".equalsIgnoreCase(endTag) && "sdnEntry".equalsIgnoreCase(currentTag)) {
                                 lastName = val;
@@ -422,12 +428,14 @@ public class AmlDataIngestionService {
         seeds.add(createSeedRecord("UN-SAMPLE-202", "UN", "INDIVIDUAL", "Mohammad Al-Rawi",
                 List.of("Abu Omar Al-Rawi", "Mohamed Rawi"),
                 List.of("1974-03-12"), List.of("Syrian Arab Republic", "Iraq"), List.of("SY-P981240"),
-                List.of("AL-QAIDA-ISIL-UNSCR1267"), "Designated under UN Security Council resolution 1267 for terrorism financing."));
+                List.of("AL-QAIDA-ISIL-UNSCR1267"),
+                "Designated under UN Security Council resolution 1267 for terrorism financing."));
 
         seeds.add(createSeedRecord("OFAC-SAMPLE-303", "OFAC", "INDIVIDUAL", "Marcus Ng",
                 List.of("Marcus Ng Teck", "Ng Boon Marcus"),
                 List.of("1982-11-20"), List.of("Singapore"), List.of("S8211200A", "E7891234"),
-                List.of("CYBER2-EO13694"), "Designated for malicious cyber activities and illicit AML fund transfers."));
+                List.of("CYBER2-EO13694"),
+                "Designated for malicious cyber activities and illicit AML fund transfers."));
 
         seeds.add(createSeedRecord("UN-SAMPLE-404", "UN", "ENTITY", "Al-Barakaat Financial Network",
                 List.of("Barakaat Wire Transfer", "Al Barakat Trading"),
@@ -442,16 +450,17 @@ public class AmlDataIngestionService {
         seeds.add(createSeedRecord("MAS-SAMPLE-606", "MAS", "INDIVIDUAL", "Alexander Thorne",
                 List.of("Alex Thorne", "Alexander James Thorne"),
                 List.of("1977-08-15"), List.of("United Kingdom", "Cyprus"), List.of("GB-99238410"),
-                List.of("MAS-TSOFA"), "Targeted financial sanction under Singapore Terrorism (Suppression of Financing) Act."));
+                List.of("MAS-TSOFA"),
+                "Targeted financial sanction under Singapore Terrorism (Suppression of Financing) Act."));
 
         amlWatchlistRepository.saveAll(seeds);
         log.info("Baseline AML sanctions seed dataset initialized ({} records).", seeds.size());
     }
 
     private AmlWatchlistRecord createSeedRecord(String id, String source, String type, String name,
-                                               List<String> aliases, List<String> dobs,
-                                               List<String> nationalities, List<String> ids,
-                                               List<String> programs, String remarks) {
+            List<String> aliases, List<String> dobs,
+            List<String> nationalities, List<String> ids,
+            List<String> programs, String remarks) {
         AmlWatchlistRecord r = new AmlWatchlistRecord();
         r.setId(id);
         r.setSource(source);
@@ -462,7 +471,8 @@ public class AmlDataIngestionService {
         List<String> normAliases = new ArrayList<>();
         for (String a : aliases) {
             String norm = normalizeName(a);
-            if (!norm.isEmpty()) normAliases.add(norm);
+            if (!norm.isEmpty())
+                normAliases.add(norm);
         }
         r.setNormalizedAliases(normAliases);
         r.setDatesOfBirth(new ArrayList<>(dobs));
@@ -476,11 +486,19 @@ public class AmlDataIngestionService {
     }
 
     public static String normalizeName(String name) {
-        if (name == null) return "";
-        // Remove accents (e.g. é -> e)
-        String decomposed = Normalizer.normalize(name, Normalizer.Form.NFD);
+        if (name == null)
+            return "";
+        // 1. Strip script tags and content, HTML/XML tags, and malicious script
+        // keywords
+        String sanitized = name.replaceAll("(?is)<script.*?>.*?</script>", " ")
+                .replaceAll("(?i)<[^>]+>", " ")
+                .replaceAll("(?i)fetch\\s*\\([^)]*\\)", " ")
+                .replaceAll("(?i)document\\.cookie", " ")
+                .replaceAll("(?i)javascript:", " ");
+        // 2. Remove accents (e.g. é -> e)
+        String decomposed = Normalizer.normalize(sanitized, Normalizer.Form.NFD);
         String stripped = decomposed.replaceAll("\\p{InCombiningDiacriticalMarks}+", "");
-        // Lowercase and keep alphanumeric + spaces
+        // 3. Lowercase and keep alphanumeric + spaces
         String alpha = stripped.toLowerCase().replaceAll("[^a-z0-9\\s]", " ").trim();
         return alpha.replaceAll("\\s+", " ");
     }
